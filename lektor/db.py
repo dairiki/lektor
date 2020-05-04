@@ -1080,7 +1080,7 @@ class Query(object):
         return rv
 
     def first(self):
-        """Loads all matching records as list."""
+        """Return the first matching record."""
         return next(iter(self), None)
 
     def all(self):
