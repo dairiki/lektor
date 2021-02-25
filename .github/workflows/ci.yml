@@ -131,11 +131,14 @@ jobs:
         with:
           node-version: ${{ matrix.nodejs-version }}
 
-      - name: Cache npm cache
-        uses: actions/cache@v2
+      - name: Get npm cache directory
+        id: npm-cache-dir
+        run: echo "::set-output name=dir::$(npm config get cache)"
+      - uses: actions/cache@v2
         with:
-          path: ~/.npm
+          path: ${{ steps.npm-cache-dir.outputs.dir }}
           key: ${{ runner.os }}-node-${{ matrix.nodejs-version }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: ${{ runner.os }}-node-
 
       - name: Install node dependencies
         run: cd lektor/admin && npm ci
