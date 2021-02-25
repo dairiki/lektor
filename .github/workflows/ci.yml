@@ -19,34 +19,33 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        python-version: [3.6, 3.7, 3.8, 3.9]
+        #python-version: [3.6, 3.7, 3.8, 3.9]
+        python-version: [3.9]
         include:
-          - os: ubuntu-latest
-            pip-dl-cache: ~/.cache/pip
-            # nodejs-version: 14
           - os: macos-latest
-            python-version: 3.9
-            pip-dl-cache: ~/Library/Caches/pip
+            python-version: 3.x
           - os: windows-latest
-            python-version: 3.9
-            pip-dl-cache: ~\AppData\Local\pip\Cache
+            python-version: 3.x
 
     steps:
       - name: Checkout branch
         uses: actions/checkout@v2
 
       - name: Setup Python ${{ matrix.python-version }}
+        id: py
         uses: actions/setup-python@v2
         with:
           python-version: ${{ matrix.python-version }}
-          # XXX: needed?
-          #architecture: 'x64'
 
-      - name: Cache pip download cache
+      - name: Get pip cache directory
+        id: pip-cache-dir
+        # requires pip>=20.1
+        run: echo "::set-output name=dir::$(pip cache dir)"
+      - name: Restore pip cache
         uses: actions/cache@v2
         with:
-          path: ${{ matrix.pip-dl-cache }}
-          key: ${{ runner.os }}-pip-py${{ matrix.python-version }}-${{ hashFiles('**/setup.py') }}
+          path: ${{ steps.pip-cache-dir.outputs.dir }}
+          key: ${{ runner.os }}-pip-py${{ steps.py.outputs.python-version }}-${{ hashFiles('**/setup.py') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
@@ -55,29 +54,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install tox tox-gh-actions
 
-      - name: Debug Homebrew cache
-        if: startsWith(runner.os, 'macOS')
-        run: |
-          ls -sFR ~/Library/Caches/Homebrew
-          rm -rf ~/Library/Caches/Homebrew/*
-
-      - name: Cache Homebrew download cache (MacOS)
-        if: startsWith(runner.os, 'macOS')
-        uses: actions/cache@v2
-        with:
-          path: ~/Library/Caches/Homebrew
-          key: homebrew-02
-
       - name: Install imagemagic, ffmpeg (MacOS)
         if: startsWith(runner.os, 'macOS')
-        run: |
-          brew install imagemagick
-          brew install ffmpeg
-
-      - name: Debug Homebrew cache post
-        if: startsWith(runner.os, 'macOS')
-        run: |
-          ls -sFR ~/Library/Caches/Homebrew
+        env:
+          # This might immensely speed the run of update-mime-database which
+          # occurs as part of installing dependencies of imagemagick.
+          PKGSYSTEM_ENABLE_FSYNC: 0
+        run: brew install imagemagick ffmpeg --display-times
 
       - name: Install imagemagic, ffmpeg (Windows)
         if: startsWith(runner.os, 'Windows')
@@ -90,29 +73,9 @@ jobs:
       - name: Test with tox
         run: tox
 
-      - name: Setup node ${{ matrix.nodejs-version }}
-        if: matrix.nodejs-version
-        uses: actions/setup-node@v2
-        with:
-          node-version: ${{ matrix.nodejs-version }}
-
-      - name: Cache npm cache
-        if: matrix.nodejs-version
-        uses: actions/cache@v2
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ matrix.nodejs-version }}-${{ hashFiles('**/package-lock.json') }}
-
-      - name: Install node dependencies
-        if: matrix.nodejs-version
-        run: cd lektor/admin && npm ci
-
-      - name: Frontend tests
-        if: matrix.nodejs-version
-        run: tox -e frontend,eslint
-
   test-nodejs:
     name: Node ${{ matrix.nodejs-version }} tests on ${{ matrix.os }}
+    if: false
     runs-on: ${{ matrix.os }}
     env:
       CI: True
@@ -134,7 +97,8 @@ jobs:
       - name: Get npm cache directory
         id: npm-cache-dir
         run: echo "::set-output name=dir::$(npm config get cache)"
-      - uses: actions/cache@v2
+      - name: Restore npm cache
+        uses: actions/cache@v2
         with:
           path: ${{ steps.npm-cache-dir.outputs.dir }}
           key: ${{ runner.os }}-node-${{ matrix.nodejs-version }}-${{ hashFiles('**/package-lock.json') }}
@@ -149,8 +113,8 @@ jobs:
       - name: Run typecheck
         run: cd lektor/admin && npx tsc
 
-      - name: Run tests
-        run: cd lektor/admin && npx tsc && npm test
+      - name: Run mocha tests
+        run: cd lektor/admin && npm test
 
       - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v2
