@@ -106,9 +106,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install tox tox-gh-actions
 
-      - name: Install node dependencies
-        run: npm ci
-        working-directory: ./lektor/admin
+      #- name: Install node dependencies
+      #  run: npm ci
+      #  working-directory: ./lektor/admin
 
       - name: Test with tox
         run: tox -e frontend
