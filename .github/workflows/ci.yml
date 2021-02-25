@@ -13,6 +13,8 @@ jobs:
   test:
     name: Python ${{ matrix.python-version }} tests on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      CI: True
     strategy:
       fail-fast: false
       matrix:
@@ -21,6 +23,7 @@ jobs:
         include:
           - os: ubuntu-latest
             pip-dl-cache: ~/.cache/pip
+            nodejs-version: 14
           - os: macos-latest
             python-version: 3.9
             pip-dl-cache: ~/Library/Caches/pip
@@ -80,11 +83,34 @@ jobs:
         if: startsWith(runner.os, 'Windows')
         # ImageMagick is temporarily pinned because of 404 issues while installing
         run: |
-          choco install imagemagick.tool --version=7.0.10.29 --timeout 600 --no-progress -y
-          choco install ffmpeg --timeout 600 --no-progress -y
+          choco install imagemagick.tool --version=7.0.10.29 --no-progress -y
+          choco install ffmpeg --no-progress -y
+        timeout-minutes: 10
 
       - name: Test with tox
         run: tox
+
+      - name: Setup node ${{ matrix.nodejs-version }}
+        if: matrix.nodejs-version
+        uses: actions/setup-node@v2
+        with:
+          node-version: ${{ matrix.nodejs-version }}
+
+      - name: Cache npm cache
+        if: matrix.nodejs-version
+        uses: actions/cache@v2
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ matrix.nodejs-version }}-${{ hashFiles('**/package-lock.json') }}
+
+      - name: Install node dependencies
+        if: matrix.nodejs-version
+        run: cd lektor/admin && npm ci
+
+      - name: Frontend tests
+        if: matrix.nodejs-version
+        run: tox -e frontend,eslint
+
 
   ############################################################################
   # Smoke tests
