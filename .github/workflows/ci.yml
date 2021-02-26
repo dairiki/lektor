@@ -22,8 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        #python-version: [3.6, 3.7, 3.8, 3.9]
-        python-version: [3.9]
+        python-version: [3.6, 3.7, 3.8, 3.9]
         include:
           - os: macos-latest
             python-version: 3.x
@@ -80,12 +79,10 @@ jobs:
 
   # Run the lint-py and lint-js tox environments
   lint:
-    name: Lint on ${{ matrix.os }} (node ${{ matrix.node-version }})
-    runs-on: ${{ matrix.os }}
+    name: Lint (node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
         node-version: [14]
 
     steps:
@@ -101,20 +98,15 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Get cache directories
-        id: cache-dirs
-        run: |
-          echo "::set-output name=npm::$(npm config get cache)"
-          echo "::set-output name=pip::$(pip cache dir)"
       - name: Restore npm, pip, pre-commit caches
         uses: actions/cache@v2
         with:
           path: |
-            ${{ steps.cache-dirs.outputs.npm }}
-            ${{ steps.cache-dirs.outputs.pip }}
+            ~/.npm
+            ~/.cache/pip
             ~/.cache/pre-commit
           key: >-
-            ${{ runner.os }}-Xlint-node${{ matrix.node-version
+            lint-node${{ matrix.node-version
             }}-py${{ steps.py.outputs.python-version
             }}-${{ hashFiles(
               'setup.py',
@@ -144,12 +136,23 @@ jobs:
   node:
     name: Node ${{ matrix.node-version }} tests on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.xfail }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
         node-version: [14]
-
+        xfail: [false]
+        include:
+          # Webpack seems to fail on Win node 14 sporadically.
+          #
+          - os: windows-latest
+            node-version: 14
+            xfail: true
+          - os: windows-latest
+            node-version: 12
+            xfail: false
+            
     steps:
       - name: Checkout branch
         uses: actions/checkout@v2
@@ -162,7 +165,6 @@ jobs:
         uses: actions/setup-node@v2
         with:
           node-version: ${{ matrix.node-version }}
-
       - name: Get cache directories
         id: cache-dirs
         run: |
@@ -193,29 +195,8 @@ jobs:
       - name: Test with tox
         run: tox -e frontend
 
-  # Run the node tests
-  win-node:
-    name: Node tests on Win
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout branch
-        uses: actions/checkout@v2
-
-      - name: Setup node ${{ matrix.node-version }}
-        uses: actions/setup-node@v2
-        with:
-          node-version: 14
-
-      - name: Install node dependencies
-        run: cd lektor/admin && npm ci
-
-      - name: Run webpack
-        run: cd lektor/admin && npm run webpack
-
-      - name: Compile typescript
-        run: cd lektor/admin && npx tsc
-
-      - name: Run tests
-        run: cd lektor/admin && npm test
-        #working-directory: ./lektor/admin
+      - name: Dump npm logs on failure
+        if: startsWith(runner.os, 'Windows') && failure()
+        run: |
+          ls c:\Users\runneradmin\npm-cache\_logs
+          cat c:\Users\runneradmin\npm-cache\_logs\*.log
