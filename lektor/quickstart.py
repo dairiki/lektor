@@ -1,3 +1,4 @@
+import getpass
 import os
 import re
 import shutil
@@ -12,7 +13,6 @@ import click
 from jinja2 import Environment
 from jinja2 import PackageLoader
 
-from lektor.utils import fs_enc
 from lektor.utils import slugify
 
 
@@ -99,8 +99,6 @@ class Generator:
             # Use shutil.move here in case we move across a file system
             # boundary.
             for filename in os.listdir(scratch):
-                if not isinstance(path, str):
-                    filename = filename.decode(fs_enc)
                 shutil.move(
                     os.path.join(scratch, filename), os.path.join(path, filename)
                 )
@@ -132,46 +130,34 @@ class Generator:
 
 
 def get_default_author():
-    # pylint: disable=import-outside-toplevel
-    import getpass
+    try:
+        import pwd  # pylint: disable=import-outside-toplevel
+    except ModuleNotFoundError:
+        pass  # windows
+    else:
+        pw = pwd.getpwuid(os.getuid())
+        if pw and pw.pw_gecos:
+            # FIXME: should split on commas
+            return pw.pw_gecos
 
-    if os.name == "nt":
-        user = getpass.getuser()
-        if isinstance(user, str):
-            return user
-        return user.decode("mbcs")
-
-    # we disable pylint, because there is no such
-    # modules on windows & it's false positive
-    import pwd  # pylint: disable=import-error
-
-    ent = pwd.getpwuid(os.getuid())  # pylint: disable=no-member
-    if ent and ent.pw_gecos:
-        name = ent.pw_gecos
-        if isinstance(name, str):
-            return name
-        return name.decode("utf-8", "replace")
-
-    name = getpass.getuser()
-    if isinstance(name, str):
-        return name
-    return name.decode("utf-8", "replace")
+    return getpass.getuser()
 
 
 def get_default_author_email():
+    cmd = ["git", "config", "user.email"]
     try:
-        value = (
-            subprocess.Popen(
-                ["git", "config", "user.email"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            .communicate()[0]
-            .strip()
-        )
-        return value.decode("utf-8")
-    except Exception:
-        return None
+        # XXX: was decoding using encoding="utf-8",
+        # but should use system encoding, I think?
+        rv = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError:
+        # FIXME: previously return status of the cmd was not checked, so if
+        # it failed and didn't generate output, an empty string was returned.
+        # For backwards compatibility (mostly to avoid breaking tests) we
+        # continue to do that.
+        # return None
+        return ""
+    else:
+        return rv.stdout.strip()
 
 
 def project_quickstart(defaults=None):

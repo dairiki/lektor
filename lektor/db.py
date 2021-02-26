@@ -35,7 +35,6 @@ from lektor.imagetools import ThumbnailMode
 from lektor.sourceobj import SourceObject
 from lektor.sourceobj import VirtualSourceObject
 from lektor.utils import cleanup_path
-from lektor.utils import fs_enc
 from lektor.utils import locate_executable
 from lektor.utils import make_relative_url
 from lektor.utils import sort_normalize_string
@@ -1402,12 +1401,6 @@ class Database:
             try:
                 dir_path = os.path.dirname(fs_path)
                 for filename in os.listdir(dir_path):
-                    if not isinstance(filename, str):
-                        try:
-                            filename = filename.decode(fs_enc)
-                        except UnicodeError:
-                            continue
-
                     if filename.endswith(
                         ".lr"
                     ) or self.env.is_uninteresting_source_name(filename):

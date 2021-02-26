@@ -38,6 +38,7 @@ _last_num_re = re.compile(r"^(.*)(\d+)(.*?)$")
 _list_marker = object()
 _value_marker = object()
 
+# XXX: still needed? (still used?)
 # Figure out our fs encoding, if it's ascii we upgrade to utf-8
 fs_enc = sys.getfilesystemencoding()
 try:
@@ -109,10 +110,7 @@ def is_path_child_of(a, b, strict=True):
 
 
 def untrusted_to_os_path(path):
-    path = path.strip("/").replace("/", os.path.sep)
-    if not isinstance(path, str):
-        path = path.decode(fs_enc, "replace")
-    return path
+    return path.strip("/").replace("/", os.path.sep)
 
 
 def is_path(path):

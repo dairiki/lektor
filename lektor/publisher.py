@@ -311,15 +311,13 @@ class FtpConnection:
         return True
 
     def mkdir(self, path, recursive=True):
-        if not isinstance(path, str):
-            path = path.decode("utf-8")
         if path in self._known_folders:
             return
         dirname, _ = posixpath.split(path)
         if dirname and recursive:
             self.mkdir(dirname)
         try:
-            self.con.mkd(path)
+            self.con.mkd(path)  # FIXME: path.encode("utf-8")?
         except FTPError as e:
             msg = str(e)
             if msg[:4] != "550 ":
@@ -328,9 +326,6 @@ class FtpConnection:
         self._known_folders.add(path)
 
     def append(self, filename, data):
-        if not isinstance(filename, str):
-            filename = filename.decode("utf-8")
-
         input = BytesIO(data.encode("utf-8"))
 
         try:
@@ -341,8 +336,6 @@ class FtpConnection:
         return True
 
     def get_file(self, filename, out=None):
-        if not isinstance(filename, str):
-            filename = filename.decode("utf-8")
         getvalue = False
         if out is None:
             out = BytesIO()
@@ -365,8 +358,6 @@ class FtpConnection:
             directory = posixpath.dirname(filename)
             if directory:
                 self.mkdir(directory, recursive=True)
-        if not isinstance(filename, str):
-            filename = filename.decode("utf-8")
         try:
             self.con.storbinary("STOR " + filename, src, blocksize=32768)
         except FTPError as e:
@@ -389,20 +380,18 @@ class FtpConnection:
                 self.log_buffer.append(str(e))
 
     def delete_file(self, filename):
-        if isinstance(filename, str):
-            filename = filename.encode("utf-8")
         try:
-            self.con.delete(filename)
+            self.con.delete(filename.encode("utf-8"))
         except Exception as e:
             self.log_buffer.append(str(e))
 
     def delete_folder(self, filename):
-        if isinstance(filename, str):
-            filename = filename.encode("utf-8")
         try:
-            self.con.rmd(filename)
+            self.con.rmd(filename.encode("utf-8"))
         except Exception as e:
             self.log_buffer.append(str(e))
+        # FIXME: was putting binary filename in _known_folders.
+        # I don't think that's right.
         self._known_folders.discard(filename)
 
 
@@ -436,10 +425,7 @@ class FtpPublisher(Publisher):
         for line in contents.splitlines():
             items = line.split("|")
             if len(items) == 2:
-                if not isinstance(items[0], str):
-                    artifact_name = items[0].decode("utf-8")
-                else:
-                    artifact_name = items[0]
+                artifact_name = items[0]
                 if artifact_name in rv:
                     duplicates.add(artifact_name)
                 rv[artifact_name] = items[1]

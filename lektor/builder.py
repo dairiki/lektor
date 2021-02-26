@@ -19,7 +19,6 @@ from lektor.constants import PRIMARY_ALT
 from lektor.context import Context
 from lektor.reporter import reporter
 from lektor.sourcesearch import find_files
-from lektor.utils import fs_enc
 from lektor.utils import process_extra_flags
 from lektor.utils import prune_file_and_folder
 
@@ -552,12 +551,10 @@ class FileInfo:
                 for filename in sorted(os.listdir(self.filename)):
                     if self.env.is_uninteresting_source_name(filename):
                         continue
-                    if isinstance(filename, str):
-                        filename = filename.encode("utf-8")
-                    h.update(filename)
+                    h.update(filename.encode("utf-8"))
                     h.update(
                         _describe_fs_path_for_checksum(
-                            os.path.join(self.filename, filename.decode("utf-8"))
+                            os.path.join(self.filename, filename)
                         )
                     )
                     h.update(b"\x00")
@@ -1008,8 +1005,6 @@ class PathCache:
         if rv is not None:
             return rv
         folder = os.path.abspath(self.env.root_path)
-        if isinstance(folder, str) and not isinstance(filename, str):
-            filename = filename.decode(fs_enc)
         filename = os.path.normpath(os.path.join(folder, filename))
         if filename.startswith(folder):
             filename = filename[len(folder) :].lstrip(os.path.sep)

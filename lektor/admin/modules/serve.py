@@ -21,7 +21,7 @@ bp = Blueprint("serve", __name__)
 def rewrite_html_for_editing(fp, edit_url):
     contents = fp.read()
 
-    button_style = u"""
+    button_style = """
     <style type="text/css">
       #lektor-edit-link {
         position: fixed;
@@ -52,7 +52,7 @@ def rewrite_html_for_editing(fp, edit_url):
       }
     </style>
     """
-    button_script = u"""
+    button_script = """
     <script type="text/javascript">
       (function() {
         if (window != window.top) {
@@ -123,22 +123,15 @@ def send_file(filename):
             rv.last_modified = int(mtime)
         rv.cache_control.public = True
         try:
-            rv.set_etag(
-                "lektor-%s-%s-%s"
-                % (
-                    os.path.getmtime(filename),
-                    os.path.getsize(filename),
-                    adler32(
-                        filename.encode("utf-8")
-                        if isinstance(filename, str)
-                        else filename
-                    )
-                    & 0xFFFFFFFF,
-                )
-            )
+            etag_bits = [
+                os.path.getmtime(filename),
+                os.path.getsize(filename),
+                adler32(filename.encode("utf-8")) & 0xFFFFFFFF,
+            ]
         except OSError:
             pass
-
+        else:
+            rv.set_etag(f"lektor-{'-'.join(map(str, etag_bits))}")
     return rv
 
 
