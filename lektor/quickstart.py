@@ -147,7 +147,9 @@ def get_default_author_email():
     try:
         # XXX: was decoding using encoding="utf-8",
         # but should use system encoding, I think?
-        rv = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        rv = subprocess.run(
+            cmd, stdout=subprocess.PIPE, universal_newlines=True, check=True
+        )
     except subprocess.CalledProcessError:
         # FIXME: previously return status of the cmd was not checked, so if
         # it failed and didn't generate output, an empty string was returned.

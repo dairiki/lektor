@@ -170,7 +170,7 @@ def get_package_info(path):
         ],
         cwd=path,
         stdout=subprocess.PIPE,
-        text=True,
+        universal_newlines=True,
         errors="replace",
         check=True,
     )

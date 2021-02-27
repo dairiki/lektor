@@ -241,7 +241,9 @@ def get_video_info(filename):
     ]
 
     try:
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, text=True, check=True)
+        proc = subprocess.run(
+            cmd, stdout=subprocess.PIPE, universal_newlines=True, check=True
+        )
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(f"ffprobe exited with code {exc.returncode}") from exc
 
