@@ -12,6 +12,7 @@ import tempfile
 import traceback
 import unicodedata
 import uuid
+import warnings
 from contextlib import contextmanager
 from datetime import datetime
 from functools import lru_cache
@@ -491,6 +492,13 @@ def portable_popen(cmd, *args, **kwargs):
     executables before invoking them.  This also looks for executables
     in the bundle bin.
     """
+    warnings.warn(
+        "The use of portable_popen is deprecated. "
+        "Use subprocess.Popen directly instead. "
+        "(You may still use lektor.utils.locate_executable if you require its "
+        "extended functionality to find the executable.)",
+        DeprecationWarning,
+    )
     if cmd[0] is None:
         raise RuntimeError("No executable specified")
     cmd[0] = locate_executable(cmd[0], kwargs.get("cwd"))
