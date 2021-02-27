@@ -11,7 +11,6 @@ from lektor.imagetools import ThumbnailMode
 from lektor.reporter import reporter
 from lektor.utils import get_dependent_url
 from lektor.utils import locate_executable
-from lektor.utils import portable_popen
 
 
 THUMBNAIL_FORMATS = frozenset(["jpg", "jpeg", "png"])
@@ -230,26 +229,23 @@ def get_video_info(filename):
     ffprobe = locate_executable("ffprobe")
     if ffprobe is None:
         raise RuntimeError("Failed to locate ffprobe")
+    cmd = [
+        ffprobe,
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_format",
+        "-show_streams",
+        filename,
+    ]
 
-    proc = portable_popen(
-        [
-            ffprobe,
-            "-v",
-            "quiet",
-            "-print_format",
-            "json",
-            "-show_format",
-            "-show_streams",
-            filename,
-        ],
-        stdout=subprocess.PIPE,
-    )
-    stdout, _ = proc.communicate()
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, text=True, check=True)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"ffprobe exited with code {exc.returncode}") from exc
 
-    if proc.returncode != 0:
-        raise RuntimeError("ffprobe exited with code %d" % proc.returncode)
-
-    ffprobe_data = json.loads(stdout.decode("utf8"))
+    ffprobe_data = json.loads(proc.stdout)
     info = {
         "width": None,
         "height": None,
@@ -353,9 +349,10 @@ def make_video_thumbnail(
         ]
 
         reporter.report_debug_info("ffmpeg cmd line", cmdline)
-        proc = portable_popen(cmdline)
-        if proc.wait() != 0:
-            raise RuntimeError("ffmpeg exited with code {}".format(proc.returncode))
+        try:
+            subprocess.run(cmdline, check=True)
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(f"ffmpeg exited with code {exc.returncode}") from exc
 
         if not os.path.exists(artifact.dst_filename):
             msg = (

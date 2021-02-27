@@ -4,6 +4,7 @@ import os
 import posixpath
 import re
 import struct
+import subprocess
 import warnings
 from datetime import datetime
 from enum import IntEnum
@@ -15,7 +16,6 @@ import filetype
 from lektor.reporter import reporter
 from lektor.utils import get_dependent_url
 from lektor.utils import locate_executable
-from lektor.utils import portable_popen
 
 
 # yay shitty library
@@ -538,7 +538,7 @@ def process_image(
     cmdline += ["-quality", str(quality), dst_filename]
 
     reporter.report_debug_info("imagemagick cmd line", cmdline)
-    portable_popen(cmdline).wait()
+    subprocess.run(cmdline, check=True)
 
 
 def make_image_thumbnail(

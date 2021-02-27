@@ -1,4 +1,5 @@
 import os
+import subprocess
 import threading
 import time
 import traceback
@@ -10,7 +11,7 @@ from lektor.admin import WebAdmin
 from lektor.builder import Builder
 from lektor.db import Database
 from lektor.reporter import CliReporter
-from lektor.utils import portable_popen
+from lektor.utils import locate_executable
 from lektor.utils import process_extra_flags
 from lektor.watcher import Watcher
 
@@ -77,9 +78,10 @@ class DevTools:
         from lektor import admin
 
         admin = os.path.dirname(admin.__file__)
-        portable_popen(["npm", "install", "."], cwd=admin).wait()
+        npm = locate_executable("npm")
+        subprocess.run([npm, "install", "."], cwd=admin, check=True)
 
-        self.watcher = portable_popen(
+        self.watcher = subprocess.Popen(
             [os.path.join(admin, "node_modules/.bin/webpack"), "--watch"],
             cwd=os.path.join(admin, "static"),
         )

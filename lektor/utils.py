@@ -284,6 +284,10 @@ def increment_filename(filename):
 @lru_cache(maxsize=None)
 def locate_executable(exe_file, cwd=None, include_bundle_path=True):
     """Locates an executable in the search path."""
+
+    # FIXME: Is this still needed now that there is no longer support for BUNDLE_BIN_PATH?
+    # It seems like, at this point, this is just duplicating the default path resolution.
+
     choices = [exe_file]
     resolve = True
 
@@ -489,13 +493,10 @@ def portable_popen(cmd, *args, **kwargs):
     """
     if cmd[0] is None:
         raise RuntimeError("No executable specified")
-    exe = locate_executable(cmd[0], kwargs.get("cwd"))
-    if exe is None:
+    cmd[0] = locate_executable(cmd[0], kwargs.get("cwd"))
+    if cmd[0] is None:
         raise RuntimeError('Could not locate executable "%s"' % cmd[0])
 
-    if isinstance(exe, str) and sys.platform != "win32":
-        exe = exe.encode(sys.getfilesystemencoding())
-    cmd[0] = exe
     return subprocess.Popen(cmd, *args, **kwargs)
 
 

@@ -2,15 +2,13 @@ import errno
 import os
 import shutil
 import site
+import subprocess
 import sys
 import tempfile
-from subprocess import PIPE
 
 import click
 import pkg_resources
 import requests
-
-from lektor.utils import portable_popen
 
 
 class PackageException(Exception):
@@ -96,9 +94,10 @@ def download_and_install_package(
     if requirements_file is not None:
         args.extend(("-r", requirements_file))
 
-    rv = portable_popen(args, env=env).wait()
-    if rv != 0:
-        raise RuntimeError("Failed to install dependency package.")
+    try:
+        subprocess.run(args, env=env, check=True)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError("Failed to install dependency package.") from exc
 
 
 def install_local_package(package_root, path):
@@ -108,70 +107,74 @@ def install_local_package(package_root, path):
     env["PYTHONPATH"] = package_root
 
     # Step 1: generate egg info and link us into the target folder.
-    rv = portable_popen(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--editable",
-            path,
-            "--install-option=--install-dir=%s" % package_root,
-            "--no-deps",
-        ],
-        env=env,
-    ).wait()
-    if rv != 0:
-        raise RuntimeError("Failed to install local package")
+    cmd = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--editable",
+        path,
+        f"--install-option=--install-dir={package_root}",
+        "--no-deps",
+    ]
+    try:
+        subprocess.run(cmd, env=env, check=True)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError("Failed to install local package") from exc
 
     # Step 2: generate the egg info into a temp folder to find the
     # requirements.
-    tmp = tempfile.mkdtemp()
-    try:
-        rv = portable_popen(
-            [
-                sys.executable,
-                "setup.py",
-                "--quiet",
-                "egg_info",
-                "--quiet",
-                "--egg-base",
-                tmp,
-            ],
-            cwd=path,
-        ).wait()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            subprocess.run(
+                [
+                    sys.executable,
+                    "setup.py",
+                    "--quiet",
+                    "egg_info",
+                    "--quiet",
+                    "--egg-base",
+                    tmp,
+                ],
+                cwd=path,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError("Failed to create egg info for local package.") from exc
+
         dirs = os.listdir(tmp)
-        if rv != 0 or len(dirs) != 1:
-            raise RuntimeError("Failed to create egg info for local package.")
+        if len(dirs) != 1:
+            raise RuntimeError(
+                f"Setup.py egg_info createdto created {len(dirs)} entries in its "
+                "output directory. (Expected one.)"
+            )
         requires = os.path.join(tmp, dirs[0], "requires.txt")
 
         # We have dependencies, install them!
         if os.path.isfile(requires):
             download_and_install_package(package_root, requirements_file=requires)
-    finally:
-        shutil.rmtree(tmp)
 
 
 def get_package_info(path):
     """Returns the name of a package at a path."""
-    rv = (
-        portable_popen(
-            [
-                sys.executable,
-                "setup.py",
-                "--quiet",
-                "--name",
-                "--author",
-                "--author-email",
-                "--license",
-                "--url",
-            ],
-            cwd=path,
-            stdout=PIPE,
-        )
-        .communicate()[0]
-        .splitlines()
+    cp = subprocess.run(
+        [
+            sys.executable,
+            "setup.py",
+            "--quiet",
+            "--name",
+            "--author",
+            "--author-email",
+            "--license",
+            "--url",
+        ],
+        cwd=path,
+        stdout=subprocess.PIPE,
+        text=True,
+        errors="replace",
+        check=True,
     )
+    output = cp.stdout.splitlines()
 
     def _process(value):
         value = value.strip()
@@ -180,25 +183,31 @@ def get_package_info(path):
         return value.decode("utf-8", "replace")
 
     return {
-        "name": _process(rv[0]),
-        "author": _process(rv[1]),
-        "author_email": _process(rv[2]),
-        "license": _process(rv[3]),
-        "url": _process(rv[4]),
+        "name": _process(output[0]),
+        "author": _process(output[1]),
+        "author_email": _process(output[2]),
+        "license": _process(output[3]),
+        "url": _process(output[4]),
         "path": path,
     }
 
 
 def register_package(path):
     """Registers the plugin at the given path."""
-    portable_popen([sys.executable, "setup.py", "register"], cwd=path).wait()
+    subprocess.run(
+        [sys.executable, "setup.py", "register"],
+        cwd=path,
+        check=True,
+    )
 
 
 def publish_package(path):
     """Registers the plugin at the given path."""
-    portable_popen(
-        [sys.executable, "setup.py", "sdist", "bdist_wheel", "upload"], cwd=path
-    ).wait()
+    subprocess.run(
+        [sys.executable, "setup.py", "sdist", "bdist_wheel", "upload"],
+        cwd=path,
+        check=True,
+    )
 
 
 def load_manifest(filename):

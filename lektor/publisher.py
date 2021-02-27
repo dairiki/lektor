@@ -16,7 +16,6 @@ from werkzeug import urls
 
 from lektor.exception import LektorException
 from lektor.utils import locate_executable
-from lektor.utils import portable_popen
 
 
 def _patch_git_env(env_overrides, ssh_command=None):
@@ -118,7 +117,7 @@ class Command:
             kwargs["stdout"] = subprocess.PIPE
             kwargs["stderr"] = subprocess.PIPE
         self.capture = capture
-        self._cmd = portable_popen(argline, **kwargs)
+        self._cmd = subprocess.Popen(argline, **kwargs)
 
     def wait(self):
         returncode = self._cmd.wait()

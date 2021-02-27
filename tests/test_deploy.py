@@ -9,6 +9,11 @@ from lektor.publisher import GithubPagesPublisher
 from lektor.publisher import RsyncPublisher
 
 
+@pytest.fixture
+def mock_popen(mocker):
+    return mocker.patch("subprocess.Popen")
+
+
 def test_get_server(env):
     server = env.load_config().get_server("production")
     assert server.name == "Production"
@@ -121,7 +126,7 @@ def test_ghpages_detect_branch_project(tmpdir, env):
     assert branch == "gh-pages"
 
 
-def test_rsync_command_credentials(tmpdir, mocker, env):
+def test_rsync_command_credentials(tmpdir, mock_popen, env):
     output_path = tmpdir.mkdir("output")
     publisher = RsyncPublisher(env, str(output_path))
     target_url = url_parse("http://example.com")
@@ -130,7 +135,6 @@ def test_rsync_command_credentials(tmpdir, mocker, env):
         "username": "fakeuser",
         "password": "fakepass",
     }
-    mock_popen = mocker.patch("lektor.publisher.portable_popen")
     publisher.get_command(target_url, str(ssh_path), credentials)
     assert mock_popen.called
     assert mock_popen.call_args[0] == (
@@ -264,11 +268,10 @@ output_path = join(dirname(__file__), "OUTPUT_PATH")
         ),
     ],
 )
-def test_rsync_publisher(target_url, called_command, tmpdir, mocker, env):
+def test_rsync_publisher(target_url, called_command, tmpdir, mock_popen, env):
     publisher = RsyncPublisher(env, str(output_path))
     target_url = url_parse(target_url)
     ssh_path = join(output_path, "ssh")
-    mock_popen = mocker.patch("lektor.publisher.portable_popen")
     publisher.get_command(target_url, str(ssh_path), credentials=None)
     assert mock_popen.called
     assert mock_popen.call_args[0] == (called_command,)
