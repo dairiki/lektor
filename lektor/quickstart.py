@@ -137,8 +137,7 @@ def get_default_author():
     else:
         pw = pwd.getpwuid(os.getuid())
         if pw and pw.pw_gecos:
-            # FIXME: should split on commas
-            return pw.pw_gecos
+            return pw.pw_gecos.split(",", 1)[0]
 
     return getpass.getuser()
 
