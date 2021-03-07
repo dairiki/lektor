@@ -68,8 +68,9 @@ jobs:
         if: startsWith(runner.os, 'macOS')
         env:
           # XXX: does not seem to help :-/
-          # This might immensely speed the run of update-mime-database which
-          # occurs as part of installing dependencies of imagemagick.
+          # I had hoped this might immensely speed the run of
+          # update-mime-database which occurs as part of installing
+          # dependencies of imagemagick.
           PKGSYSTEM_ENABLE_FSYNC: 0
         run: brew install imagemagick ffmpeg --display-times
 
