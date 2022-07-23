@@ -1,4 +1,7 @@
-import sqlite3
+from itertools import chain
+from itertools import groupby
+from itertools import islice
+from operator import itemgetter
 
 from lektor.constants import PRIMARY_ALT
 
@@ -11,13 +14,6 @@ def _iter_parents(path):
             yield "/" + "/".join(pieces[:x])
 
 
-def _find_info(infos, alt, lang):
-    for info in infos:
-        if info["alt"] == alt and info["lang"] == lang:
-            return info
-    return None
-
-
 def _id_from_path(path):
     try:
         return path.strip("/").split("/")[-1]
@@ -25,83 +21,50 @@ def _id_from_path(path):
         return ""
 
 
-def _mapping_from_cursor(cur):
-    rv = {}
-    for path, alt, lang, type, title in cur.fetchall():
-        rv.setdefault(path, []).append(
-            {
-                "id": _id_from_path(path),
-                "path": path,
-                "alt": alt,
-                "type": type,
-                "lang": lang,
-                "title": title,
-            }
-        )
-    return rv
-
-
-def _find_best_info(infos, alt, lang):
-    for _alt, _lang in [
-        (alt, lang),
-        (PRIMARY_ALT, lang),
-        (alt, "en"),
-        (PRIMARY_ALT, "en"),
-    ]:
-        rv = _find_info(infos, _alt, _lang)
-        if rv is not None:
-            return rv
-    return None
-
-
-def _build_parent_path(path, mapping, alt, lang):
-    rv = []
+def _build_parent_path(path, infos):
     for parent in _iter_parents(path):
-        info = _find_best_info(mapping.get(parent) or [], alt, lang)
         id = _id_from_path(parent)
+        info = infos.get(parent)
         if info is None:
             title = id or "(Index)"
         else:
             title = info.get("title")
-        rv.append({"id": id, "path": parent, "title": title})
-    return rv
+        yield {"id": id, "path": parent, "title": title}
 
 
-def _process_search_results(builder, cur, alt, lang, limit):
-    mapping = _mapping_from_cursor(cur)
-    rv = []
+def _qmarks(values):
+    """Return SQL placeholders for values."""
+    return ",".join(["?"] * len(values))
 
-    files_needed = set()
 
-    for path, infos in mapping.items():
-        info = _find_best_info(infos, alt, lang)
-        if info is None:
-            continue
+def _best_info(infos, alt, lang):
+    alt_lang_prefs = [
+        (alt, lang),
+        (PRIMARY_ALT, lang),
+        (alt, "en"),
+        (PRIMARY_ALT, "en"),
+    ]
 
-        for parent in _iter_parents(path):
-            if parent not in mapping:
-                files_needed.add(parent)
+    def by_alt_lang(info):
+        key = info["alt"], info["lang"]
+        for n, alt_lang in enumerate(alt_lang_prefs):
+            if key == alt_lang:
+                return n
+        return len(alt_lang_prefs)
 
-        rv.append(info)
-        if len(rv) == limit:
-            break
+    return min(infos, default=None, key=by_alt_lang)
 
-    if files_needed:
-        cur.execute(
-            """
-            select path, alt, lang, type, title
-              from source_info
-             where path in (%s)
-        """
-            % ", ".join(["?"] * len(files_needed)),
-            list(files_needed),
-        )
-        mapping.update(_mapping_from_cursor(cur))
 
-    for info in rv:
-        info["parents"] = _build_parent_path(info["path"], mapping, alt, lang)
+def _process_rows(cur, alt, lang):
+    column_names = [desc[0] for desc in cur.description]
+    by_path = itemgetter("path")
 
-    return rv
+    infos = (dict(zip(column_names, row)) for row in cur)
+
+    for _, infos_ in groupby(sorted(infos, key=by_path), key=by_path):
+        info = _best_info(infos_, alt, lang)
+        if info is not None:
+            yield info
 
 
 def find_files(builder, query, alt=PRIMARY_ALT, lang=None, limit=50, types=None):
@@ -122,28 +85,45 @@ def find_files(builder, query, alt=PRIMARY_ALT, lang=None, limit=50, types=None)
     title_like = "%" + query + "%"
     path_like = "/%" + query.rstrip("/") + "%"
 
-    con = sqlite3.connect(builder.buildstate_database_filename, timeout=10)
-    try:
-        cur = con.cursor()
-        cur.execute(
-            """
-            select path, alt, lang, type, title
-              from source_info
-             where (title like ? or path like ?)
-               and lang in (%s)
-               and alt in (%s)
-               and type in (%s)
-          order by title
-           collate nocase
-             limit ?
-        """
-            % (
-                ", ".join(["?"] * len(languages)),
-                ", ".join(["?"] * len(alts)),
-                ", ".join(["?"] * len(types)),
-            ),
-            [title_like, path_like] + languages + alts + types + [limit * 2],
+    con = builder.connect_to_database()
+
+    cur = con.execute(
+        f"""
+        SELECT path, alt, lang, type, title
+          FROM source_info
+         WHERE (title LIKE ? or PATH like ?)
+           AND lang in ({_qmarks(languages)})
+           AND alt in ({_qmarks(alts)})
+           AND type in ({_qmarks(types)})
+       COLLATE nocase
+         LIMIT ?
+        """,
+        [title_like, path_like] + languages + alts + types + [limit * 2],
+    )
+
+    infos = {
+        info["path"]: info for info in islice(_process_rows(cur, alt, lang), limit)
+    }
+    hits = sorted(infos.values(), key=itemgetter("title"))
+
+    parent_paths = set(
+        chain.from_iterable(_iter_parents(info["path"]) for info in hits)
+    )
+    paths_needed = parent_paths - set(infos.keys())
+
+    if paths_needed:
+        cur = con.execute(
+            f"""
+            SELECT path, alt, lang, type, title
+              FROM source_info
+             WHERE path in ({_qmarks(paths_needed)})
+            """,
+            list(paths_needed),
         )
-        return _process_search_results(builder, cur, alt, lang, limit)
-    finally:
-        con.close()
+        infos.update({info["path"]: info for info in _process_rows(cur, alt, lang)})
+
+    for info in hits:
+        info["id"] = _id_from_path(info["path"])
+        info["parents"] = list(_build_parent_path(info["path"], infos))
+
+    return hits
