@@ -7,6 +7,7 @@ import sys
 import tempfile
 from collections import deque
 from collections import namedtuple
+from collections.abc import MutableMapping
 from contextlib import contextmanager
 from itertools import chain
 from pathlib import Path
@@ -71,6 +72,47 @@ def create_tables(con):
         ) {without_rowid};
     """
     )
+
+
+class ConfigHashes(MutableMapping):
+    def __init__(self, dbcon):
+        self.dbcon = dbcon
+
+    def __getitem__(self, artifact_name):
+        cur = self.dbcon.execute(
+            "SELECT config_hash FROM artifact_config_hashes WHERE artifact = ?",
+            [artifact_name],
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise KeyError(artifact_name)
+        return row[0]
+
+    def __setitem__(self, artifact_name, config_hash):
+        self.dbcon.execute(
+            """
+            INSERT OR REPLACE INTO artifact_config_hashes (artifact, config_hash)
+            VALUES (?, ?)
+            """,
+            [artifact_name, config_hash],
+        )
+
+    def __delitem__(self, artifact_name):
+        cur = self.dbcon.execute(
+            "DELETE FROM artifact_config_hashes WHERE artifact = ?",
+            [artifact_name],
+        )
+        if cur.rowcount == 0:
+            raise KeyError(artifact_name)
+
+    def __iter__(self):
+        cur = self.dbcon.execute("SELECT artifact FROM artifact_config_hashes")
+        for (artifact_name,) in cur:
+            yield artifact_name
+
+    def __len__(self):
+        cur = self.dbcon.execute("SELECT COUNT(*) FROM artifact_config_hashes")
+        return cur.fetchone()[0]
 
 
 def _qmarks(values):
@@ -294,17 +336,10 @@ class BuildState:
         )
         return bool(cur.fetchone()[0])
 
-    def _get_artifact_config_hash(self, artifact_name):
-        """Returns the artifact's config hash."""
-        cur = self.dbcon.execute(
-            "SELECT config_hash FROM artifact_config_hashes WHERE artifact = ?",
-            [artifact_name],
-        )
-        return cur.fetchone()[0] if cur.rowcount > 0 else None
-
     def check_artifact_is_current(self, artifact_name, sources, config_hash):
         # The artifact config changed
-        if config_hash != self._get_artifact_config_hash(artifact_name):
+        config_hashes = ConfigHashes(self.dbcon)
+        if config_hash != config_hashes.get(artifact_name):
             return False
 
         # If one of our source files is explicitly marked as dirty in the
@@ -714,19 +749,11 @@ class Artifact:
                     rows,
                 )
 
+            config_hashes = ConfigHashes(con)
             if self.config_hash is None:
-                con.execute(
-                    "DELETE FROM artifact_config_hashes WHERE artifact = ?",
-                    [self.artifact_name],
-                )
+                config_hashes.pop(self.artifact_name, None)
             else:
-                con.execute(
-                    """
-                    INSERT OR REPLACE INTO artifact_config_hashes (artifact, config_hash)
-                    VALUES (?, ?)
-                    """,
-                    [self.artifact_name, self.config_hash],
-                )
+                config_hashes[self.artifact_name] = self.config_hash
 
         if for_failure:
             with self.build_state.dbcon as con:
