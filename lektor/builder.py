@@ -26,64 +26,50 @@ from lektor.utils import prune_file_and_folder
 def create_tables(con):
     can_disable_rowid = (3, 8, 2) <= sqlite3.sqlite_version_info
     if can_disable_rowid:
-        without_rowid = "without rowid"
+        without_rowid = "WITHOUT ROWID"
     else:
         without_rowid = ""
 
-    try:
-        con.execute(
-            f"""
-            create table if not exists artifacts (
-                artifact text,
-                source text,
-                source_mtime integer,
-                source_size integer,
-                source_checksum text,
-                is_dir integer,
-                is_primary_source integer,
-                primary key (artifact, source)
-            ) {without_rowid};
-        """
-        )
-        con.execute(
-            """
-            create index if not exists artifacts_source on artifacts (
-                source
-            );
-        """
-        )
-        con.execute(
-            f"""
-            create table if not exists artifact_config_hashes (
-                artifact text,
-                config_hash text,
-                primary key (artifact)
-            ) {without_rowid};
-        """
-        )
-        con.execute(
-            f"""
-            create table if not exists dirty_sources (
-                source text,
-                primary key (source)
-            ) {without_rowid};
-        """
-        )
-        con.execute(
-            f"""
-            create table if not exists source_info (
-                path text,
-                alt text,
-                lang text,
-                type text,
-                source text,
-                title text,
-                primary key (path, alt, lang)
-            ) {without_rowid};
-        """
-        )
-    finally:
-        con.close()
+    con.executescript(
+        f"""
+        CREATE TABLE IF NOT EXISTS artifacts (
+            artifact TEXT,
+            source TEXT,
+            source_mtime INTEGER,
+            source_size INTEGER,
+            source_checksum TEXT,
+            is_dir INTEGER,
+            is_primary_source INTEGER,
+            PRIMARY KEY (artifact, source)
+        ) {without_rowid};
+
+        CREATE INDEX IF NOT EXISTS artifacts_source ON artifacts (
+            source
+        );
+
+        CREATE TABLE IF NOT EXISTS artifact_config_hashes (
+            artifact TEXT,
+            config_hash TEXT,
+            PRIMARY KEY (artifact)
+        ) {without_rowid};
+
+
+        CREATE TABLE IF NOT EXISTS dirty_sources (
+            source TEXT,
+            PRIMARY KEY (source)
+        ) {without_rowid};
+
+        CREATE TABLE IF NOT EXISTS source_info (
+            path TEXT,
+            alt TEXT,
+            lang TEXT,
+            type TEXT,
+            source TEXT,
+            title TEXT,
+            PRIMARY KEY (path, alt, lang)
+        ) {without_rowid};
+    """
+    )
 
 
 class BuildState:
