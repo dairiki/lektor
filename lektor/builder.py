@@ -9,6 +9,7 @@ from collections import deque
 from collections import namedtuple
 from contextlib import contextmanager
 from itertools import chain
+from pathlib import Path
 
 import click
 
@@ -72,9 +73,15 @@ def create_tables(con):
     )
 
 
+def _qmarks(values):
+    """Return SQL placeholders for values."""
+    return ",".join(["?"] * len(values))
+
+
 class BuildState:
     def __init__(self, builder, path_cache):
         self.builder = builder
+        self.dbcon = builder.connect_to_database()
 
         self.named_temporaries = set()
         self.updated_artifacts = []
@@ -150,10 +157,6 @@ class BuildState:
         checksum = virtual_source.get_checksum(self.path_cache)
         return VirtualSourceInfo(virtual_source_path, mtime, checksum)
 
-    def connect_to_database(self):
-        """Returns a database connection for the build state db."""
-        return self.builder.connect_to_database()
-
     def get_destination_filename(self, artifact_name):
         """Returns the destination filename for an artifact name."""
         return os.path.join(
@@ -193,29 +196,21 @@ class BuildState:
         return os.path.exists(dst_filename)
 
     def get_artifact_dependency_infos(self, artifact_name, sources):
-        con = self.connect_to_database()
-        try:
-            cur = con.cursor()
-            rv = list(self._iter_artifact_dependency_infos(cur, artifact_name, sources))
-        finally:
-            con.close()
-        return rv
+        return list(self._iter_artifact_dependency_infos(artifact_name, sources))
 
-    def _iter_artifact_dependency_infos(self, cur, artifact_name, sources):
+    def _iter_artifact_dependency_infos(self, artifact_name, sources):
         """This iterates over all dependencies as file info objects."""
-        cur.execute(
+        cur = self.dbcon.execute(
             """
-            select source, source_mtime, source_size,
+            SELECT source, source_mtime, source_size,
                    source_checksum, is_dir
-            from artifacts
-            where artifact = ?
+            FROM artifacts
+            WHERE artifact = ?
         """,
             [artifact_name],
         )
-        rv = cur.fetchall()
-
         found = set()
-        for path, mtime, size, checksum, is_dir in rv:
+        for path, mtime, size, checksum, is_dir in cur:
             if "@" in path:
                 yield path, VirtualSourceInfo(path, mtime, checksum)
             else:
@@ -240,210 +235,150 @@ class BuildState:
         """
         reporter.report_write_source_info(info)
         source = self.to_source_filename(info.filename)
-        con = self.connect_to_database()
-        try:
-            cur = con.cursor()
-            for lang, title in info.title_i18n.items():
-                cur.execute(
-                    """
-                    insert or replace into source_info
-                        (path, alt, lang, type, source, title)
-                        values (?, ?, ?, ?, ?, ?)
+        with self.dbcon as con:
+            con.executemany(
+                """
+                INSERT OR REPLACE INTO source_info (path, alt, lang, type, source, title)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                    [info.path, info.alt, lang, info.type, source, title],
-                )
-            con.commit()
-        finally:
-            con.close()
+                (
+                    [info.path, info.alt, lang, info.type, source, title]
+                    for lang, title in info.title_i18n.items()
+                ),
+            )
 
     def prune_source_infos(self):
         """Remove all source infos of files that no longer exist."""
         MAX_VARS = 999  # Default SQLITE_MAX_VARIABLE_NUMBER.
-        con = self.connect_to_database()
-        to_clean = []
-        try:
-            cur = con.cursor()
-            cur.execute(
-                """
-                select distinct source from source_info
-            """
-            )
-            for (source,) in cur.fetchall():
-                fs_path = os.path.join(self.env.root_path, source)
-                if not os.path.exists(fs_path):
-                    to_clean.append(source)
+        root_path = Path(self.env.root_path)
 
-            if to_clean:
+        to_clean = [
+            source
+            for (source,) in self.dbcon.execute(
+                "SELECT DISTINCT source FROM source_info"
+            )
+            if not root_path.joinpath(source).exists()
+        ]
+        if to_clean:
+            with self.dbcon as con:
                 for i in range(0, len(to_clean), MAX_VARS):
                     chunk = to_clean[i : i + MAX_VARS]
-                    cur.execute(
-                        """
-                        delete from source_info
-                         where source in (%s)
-                    """
-                        % ", ".join(["?"] * len(chunk)),
+                    con.execute(
+                        f"DELETE FROM source_info WHERE SOURCE in ({_qmarks(chunk)})",
                         chunk,
                     )
-
-                con.commit()
-        finally:
-            con.close()
 
         for source in to_clean:
             reporter.report_prune_source_info(source)
 
     def remove_artifact(self, artifact_name):
         """Removes an artifact from the build state."""
-        con = self.connect_to_database()
-        try:
-            cur = con.cursor()
-            cur.execute(
-                """
-                delete from artifacts where artifact = ?
-            """,
-                [artifact_name],
-            )
-            con.commit()
-        finally:
-            con.close()
+        with self.dbcon as con:
+            con.execute("DELETE FROM artifacts WHERE artifact = ?", [artifact_name])
 
-    def _any_sources_are_dirty(self, cur, sources):
+    def _any_sources_are_dirty(self, sources):
         """Given a list of sources this checks if any of them are marked
         as dirty.
         """
-        sources = [self.to_source_filename(x) for x in sources]
         if not sources:
             return False
+        sources = list(map(self.to_source_filename, sources))
 
-        cur.execute(
-            """
-            select source from dirty_sources where source in (%s) limit 1
-        """
-            % ", ".join(["?"] * len(sources)),
+        cur = self.dbcon.execute(
+            f"""
+            SELECT EXISTS(
+                SELECT 1 FROM dirty_sources WHERE source in ({_qmarks(sources)})
+            )
+            """,
             sources,
         )
-        return cur.fetchone() is not None
+        return bool(cur.fetchone()[0])
 
-    @staticmethod
-    def _get_artifact_config_hash(cur, artifact_name):
+    def _get_artifact_config_hash(self, artifact_name):
         """Returns the artifact's config hash."""
-        cur.execute(
-            """
-            select config_hash from artifact_config_hashes
-             where artifact = ?
-        """,
+        cur = self.dbcon.execute(
+            "SELECT config_hash FROM artifact_config_hashes WHERE artifact = ?",
             [artifact_name],
         )
-        rv = cur.fetchone()
-        return rv[0] if rv else None
+        return cur.fetchone()[0] if cur.rowcount > 0 else None
 
     def check_artifact_is_current(self, artifact_name, sources, config_hash):
-        con = self.connect_to_database()
-        cur = con.cursor()
-        try:
-            # The artifact config changed
-            if config_hash != self._get_artifact_config_hash(cur, artifact_name):
+        # The artifact config changed
+        if config_hash != self._get_artifact_config_hash(artifact_name):
+            return False
+
+        # If one of our source files is explicitly marked as dirty in the
+        # build state, we are not current.
+        if self._any_sources_are_dirty(sources):
+            return False
+
+        # If we do have an already existing artifact, we need to check if
+        # any of the source files we depend on changed.
+        for _, info in self._iter_artifact_dependency_infos(artifact_name, sources):
+            # if we get a missing source info it means that we never
+            # saw this before.  This means we need to build it.
+            if info is None:
                 return False
 
-            # If one of our source files is explicitly marked as dirty in the
-            # build state, we are not current.
-            if self._any_sources_are_dirty(cur, sources):
-                return False
-
-            # If we do have an already existing artifact, we need to check if
-            # any of the source files we depend on changed.
-            for _, info in self._iter_artifact_dependency_infos(
-                cur, artifact_name, sources
-            ):
-                # if we get a missing source info it means that we never
-                # saw this before.  This means we need to build it.
-                if info is None:
+            if isinstance(info, VirtualSourceInfo):
+                new_vinfo = self.get_virtual_source_info(info.path)
+                if not info.unchanged(new_vinfo):
                     return False
 
-                if isinstance(info, VirtualSourceInfo):
-                    new_vinfo = self.get_virtual_source_info(info.path)
-                    if not info.unchanged(new_vinfo):
-                        return False
-
+            elif not info.unchanged(self.get_file_info(info.filename)):
                 # If the file info is different, then it clearly changed.
-                elif not info.unchanged(self.get_file_info(info.filename)):
-                    return False
+                return False
+        return True
 
-            return True
-        finally:
-            con.close()
+    def iter_existing_artifacts(self):
+        """Scan output directory for artifacts.
+
+        Returns an iterable of the artifact_names for artifacts found.
+        """
+        is_ignored = self.env.is_ignored_artifact
+
+        def _unignored(filenames):
+            return filter(lambda fn: not is_ignored(fn), filenames)
+
+        dst = Path(self.builder.destination_path)
+        for dirpath, dirnames, filenames in os.walk(dst):
+            dirnames[:] = _unignored(dirnames)
+            for filename in _unignored(filenames):
+                full_path = dst.joinpath(dirpath, filename)
+                yield self.artifact_name_from_destination_filename(full_path)
 
     def iter_unreferenced_artifacts(self, all=False):
         """Finds all unreferenced artifacts in the build folder and yields
         them.
         """
-        dst = os.path.join(self.builder.destination_path)
 
-        con = self.connect_to_database()
-        cur = con.cursor()
+        def _is_unreferenced(artifact_name):
+            # Check whether any of the primary sources for the artifact exist
+            cur = self.dbcon.execute(
+                "SELECT source FROM artifacts WHERE artifact = ? AND is_primary_source",
+                [artifact_name],
+            )
+            return not any(self.get_file_info(source).exists for (source,) in cur)
 
-        try:
-            for dirpath, dirnames, filenames in os.walk(dst):
-                dirnames[:] = [
-                    x for x in dirnames if not self.env.is_ignored_artifact(x)
-                ]
-                for filename in filenames:
-                    if self.env.is_ignored_artifact(filename):
-                        continue
-                    full_path = os.path.join(dst, dirpath, filename)
-                    artifact_name = self.artifact_name_from_destination_filename(
-                        full_path
-                    )
+        artifacts = self.iter_existing_artifacts()
+        if not all:
+            artifacts = filter(_is_unreferenced, artifacts)
 
-                    if all:
-                        yield artifact_name
-                        continue
-
-                    cur.execute(
-                        """
-                        select source from artifacts
-                         where artifact = ?
-                           and is_primary_source""",
-                        [artifact_name],
-                    )
-                    sources = set(x[0] for x in cur.fetchall())
-
-                    # It's a bad artifact if there are no primary sources
-                    # or the primary sources do not exist.
-                    if not sources or not any(
-                        self.get_file_info(x).exists for x in sources
-                    ):
-                        yield artifact_name
-        finally:
-            con.close()
+        yield from artifacts
 
     def iter_artifacts(self):
         """Iterates over all artifact and their file infos.."""
-        con = self.connect_to_database()
-        try:
-            cur = con.cursor()
-            cur.execute(
-                """
-                select distinct artifact from artifacts order by artifact
-            """
-            )
-            rows = cur.fetchall()
-            con.close()
-            for (artifact_name,) in rows:
-                path = self.get_destination_filename(artifact_name)
-                info = FileInfo(self.builder.env, path)
-                if info.exists:
-                    yield artifact_name, info
-        finally:
-            con.close()
+        for (artifact_name,) in self.dbcon.execute(
+            "SELECT DISTINCT artifact FROM artifacts ORDER BY artifact"
+        ):
+            path = self.get_destination_filename(artifact_name)
+            info = FileInfo(self.builder.env, path)
+            if info.exists:
+                yield artifact_name, info
 
     def vacuum(self):
         """Vacuums the build db."""
-        con = self.connect_to_database()
-        try:
-            con.execute("vacuum")
-        finally:
-            con.close()
+        self.dbcon.execute("vacuum")
 
 
 def _describe_fs_path_for_checksum(path):
@@ -724,94 +659,78 @@ class Artifact:
         more will immediately commit into a new connection.
         """
 
-        def operation(con):
-            primary_sources = set(
-                self.build_state.to_source_filename(x) for x in self.sources
+        def _iter_artifact_rows():
+            to_source_filename = self.build_state.to_source_filename
+            primary_sources = set(map(to_source_filename, self.sources))
+            other_sources = (
+                set(map(to_source_filename, dependencies or ())) - primary_sources
             )
 
-            seen = set()
-            rows = []
-            for source in chain(self.sources, dependencies or ()):
-                source = self.build_state.to_source_filename(source)
-                if source in seen:
-                    continue
-                info = self.build_state.get_file_info(source)
-                rows.append(
-                    artifacts_row(
+            for sources, is_primary_source in [
+                (primary_sources, True),
+                (other_sources, False),
+            ]:
+                for source in sources:
+                    info = self.build_state.get_file_info(source)
+                    yield artifacts_row(
                         artifact=self.artifact_name,
                         source=source,
                         source_mtime=info.mtime,
                         source_size=info.size,
                         source_checksum=info.checksum,
                         is_dir=info.is_dir,
-                        is_primary_source=source in primary_sources,
+                        is_primary_source=is_primary_source,
                     )
-                )
-
-                seen.add(source)
 
             for v_source in virtual_dependencies or ():
                 checksum = v_source.get_checksum(self.build_state.path_cache)
                 mtime = v_source.get_mtime(self.build_state.path_cache)
-                rows.append(
-                    artifacts_row(
-                        artifact=self.artifact_name,
-                        source=v_source.path,
-                        source_mtime=mtime,
-                        source_size=None,
-                        source_checksum=checksum,
-                        is_dir=False,
-                        is_primary_source=False,
-                    )
+                yield artifacts_row(
+                    artifact=self.artifact_name,
+                    source=v_source.path,
+                    source_mtime=mtime,
+                    source_size=None,
+                    source_checksum=checksum,
+                    is_dir=False,
+                    is_primary_source=False,
                 )
 
+        def operation(con):
+            rows = list(_iter_artifact_rows())
             reporter.report_dependencies(rows)
 
-            cur = con.cursor()
             if not for_failure:
-                cur.execute(
-                    "delete from artifacts where artifact = ?", [self.artifact_name]
+                con.execute(
+                    "DELETE FROM artifacts WHERE artifact = ?", [self.artifact_name]
                 )
             if rows:
-                cur.executemany(
+                con.executemany(
                     """
-                    insert or replace into artifacts (
+                    INSERT OR REPLACE INTO artifacts (
                         artifact, source, source_mtime, source_size,
                         source_checksum, is_dir, is_primary_source)
-                    values (?, ?, ?, ?, ?, ?, ?)
-                """,
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
                     rows,
                 )
 
             if self.config_hash is None:
-                cur.execute(
-                    """
-                    delete from artifact_config_hashes
-                     where artifact = ?
-                """,
+                con.execute(
+                    "DELETE FROM artifact_config_hashes WHERE artifact = ?",
                     [self.artifact_name],
                 )
             else:
-                cur.execute(
+                con.execute(
                     """
-                    insert or replace into artifact_config_hashes
-                           (artifact, config_hash) values (?, ?)
-                """,
+                    INSERT OR REPLACE INTO artifact_config_hashes (artifact, config_hash)
+                    VALUES (?, ?)
+                    """,
                     [self.artifact_name, self.config_hash],
                 )
 
-            cur.close()
-
         if for_failure:
-            con = self.build_state.connect_to_database()
-            try:
+            with self.build_state.dbcon as con:
                 operation(con)
-            except:  # noqa
-                con.rollback()
-                con.close()
-                raise
-            con.commit()
-            con.close()
         else:
             self._auto_deferred_update_operation(operation)
 
@@ -819,60 +738,42 @@ class Artifact:
         """Clears the dirty flag for all sources."""
 
         def operation(con):
-            sources = [self.build_state.to_source_filename(x) for x in self.sources]
-            cur = con.cursor()
-            cur.execute(
-                """
-                delete from dirty_sources where source in (%s)
-            """
-                % ", ".join(["?"] * len(sources)),
-                list(sources),
+            sources = list(map(self.build_state.to_source_filename, self.sources))
+            con.execute(
+                f"DELETE FROM dirty_sources WHERE source IN ({_qmarks(sources)})",
+                sources,
             )
-            cur.close()
             reporter.report_dirty_flag(False)
 
         self._auto_deferred_update_operation(operation)
 
     def set_dirty_flag(self):
-        """Given a list of artifacts this will mark all of their sources
-        as dirty so that they will be rebuilt next time.
+        """Set dirty flag for all sources.
+
+        This will force the artifact to be rebuilt next time.
         """
 
         def operation(con):
-            sources = set()
-            for source in self.sources:
-                sources.add(self.build_state.to_source_filename(source))
-
-            if not sources:
-                return
-
-            cur = con.cursor()
-            cur.executemany(
-                """
-                insert or replace into dirty_sources (source) values (?)
-            """,
-                [(x,) for x in sources],
-            )
-            cur.close()
-
-            reporter.report_dirty_flag(True)
+            to_source_filename = self.build_state.to_source_filename
+            if self.sources:
+                con.executemany(
+                    "INSERT OR REPLACE INTO dirty_sources (source) VALUES (?)",
+                    ((to_source_filename(source),) for source in self.sources),
+                )
+                reporter.report_dirty_flag(True)
 
         self._auto_deferred_update_operation(operation)
 
-    def _auto_deferred_update_operation(self, f):
+    def _auto_deferred_update_operation(self, operation):
         """Helper that defers an update operation when inside an update
         block to a later point.  Otherwise it's auto committed.
         """
         if self.in_update_block:
-            self._pending_update_ops.append(f)
+            self._pending_update_ops.append(operation)
             return
-        con = self.build_state.connect_to_database()
-        try:
-            f(con)
-        except:  # noqa
-            con.rollback()
-            raise
-        con.commit()
+
+        with self.build_state.dbcon as con:
+            operation(con)
 
     @contextmanager
     def update(self):
@@ -902,30 +803,16 @@ class Artifact:
         return ctx
 
     def _commit(self):
-        con = None
-        try:
+        with self.build_state.dbcon as con:
             for op in self._pending_update_ops:
-                if con is None:
-                    con = self.build_state.connect_to_database()
                 op(con)
 
             if self._new_artifact_file is not None:
                 os.replace(self._new_artifact_file, self.dst_filename)
                 self._new_artifact_file = None
 
-            if con is not None:
-                con.commit()
-                con.close()
-                con = None
-
-            self.build_state.updated_artifacts.append(self)
-            self.build_state.builder.failure_controller.clear_failure(
-                self.artifact_name
-            )
-        finally:
-            if con is not None:
-                con.rollback()
-                con.close()
+        self.build_state.updated_artifacts.append(self)
+        self.build_state.builder.failure_controller.clear_failure(self.artifact_name)
 
     def _rollback(self):
         if self._new_artifact_file is not None:
@@ -1056,11 +943,8 @@ class Builder:
         except OSError:
             pass
 
-        con = self.connect_to_database()
-        try:
+        with self.connect_to_database() as con:
             create_tables(con)
-        finally:
-            con.close()
 
     @property
     def env(self):
@@ -1079,11 +963,13 @@ class Builder:
             timeout=10,
             check_same_thread=False,
         )
-        cur = con.cursor()
-        cur.execute("pragma journal_mode=WAL")
-        cur.execute("pragma synchronous=NORMAL")
-        con.commit()
-        cur.close()
+        with con:
+            con.executescript(
+                """
+                PRAGMA journal_mode=WAL;
+                PRAGMA synchronous=NORMAL;
+                """
+            )
         return con
 
     def touch_site_config(self):
