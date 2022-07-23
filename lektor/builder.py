@@ -8,6 +8,7 @@ import tempfile
 from collections import deque
 from collections import namedtuple
 from collections.abc import MutableMapping
+from collections.abc import MutableSet
 from contextlib import contextmanager
 from itertools import chain
 from pathlib import Path
@@ -113,6 +114,62 @@ class ConfigHashes(MutableMapping):
     def __len__(self):
         cur = self.dbcon.execute("SELECT COUNT(*) FROM artifact_config_hashes")
         return cur.fetchone()[0]
+
+
+class DirtySources(MutableSet):
+    def __init__(self, dbcon):
+        self.dbcon = dbcon
+
+    def __contains__(self, source):
+        cur = self.dbcon.execute(
+            "SELECT 1 FROM dirty_sources WHERE source = ?",
+            [source],
+        )
+        return cur.fetchone() is not None
+
+    def __iter__(self):
+        cur = self.dbcon.execute("SELECT source FROM dirty_sources")
+        for (source,) in cur:
+            yield source
+
+    def __len__(self):
+        cur = self.dbcon.execute("SELECT COUNT(*) FROM dirty_sources")
+        return cur.fetchone()[0]
+
+    def add(self, value):
+        self.dbcon.execute(
+            "INSERT OR REPLACE INTO dirty_sources (source) VALUES (?)", [value]
+        )
+
+    def discard(self, value):
+        self.dbcon.execute("DELETE FROM dirty_sources WHERE source = ?", [value])
+
+    def isdisjoint(self, other):
+        sources = list(other)
+        if len(sources) == 0:
+            return True
+        cur = self.dbcon.execute(
+            f"""
+            SELECT NOT EXISTS(
+                SELECT 1 FROM dirty_sources WHERE source in ({_qmarks(sources)})
+            )
+            """,
+            sources,
+        )
+        return bool(cur.fetchone()[0])
+
+    def update(self, sources):
+        self.dbcon.executemany(
+            "INSERT OR REPLACE INTO dirty_sources (source) VALUES (?)",
+            ((source,) for source in sources),
+        )
+
+    def difference_update(self, sources):
+        sources = list(sources)
+        self.dbcon.execute(
+            f"DELETE FROM dirty_sources WHERE source IN ({_qmarks(sources)})",
+            sources,
+        )
 
 
 def _qmarks(values):
@@ -324,17 +381,8 @@ class BuildState:
         """
         if not sources:
             return False
-        sources = list(map(self.to_source_filename, sources))
-
-        cur = self.dbcon.execute(
-            f"""
-            SELECT EXISTS(
-                SELECT 1 FROM dirty_sources WHERE source in ({_qmarks(sources)})
-            )
-            """,
-            sources,
-        )
-        return bool(cur.fetchone()[0])
+        our_sources_ = map(self.to_source_filename, sources)
+        return not DirtySources(self.dbcon).isdisjoint(our_sources_)
 
     def check_artifact_is_current(self, artifact_name, sources, config_hash):
         # The artifact config changed
@@ -765,10 +813,8 @@ class Artifact:
         """Clears the dirty flag for all sources."""
 
         def operation(con):
-            sources = list(map(self.build_state.to_source_filename, self.sources))
-            con.execute(
-                f"DELETE FROM dirty_sources WHERE source IN ({_qmarks(sources)})",
-                sources,
+            DirtySources(con).difference_update(
+                map(self.build_state.to_source_filename, self.sources)
             )
             reporter.report_dirty_flag(False)
 
@@ -783,10 +829,7 @@ class Artifact:
         def operation(con):
             to_source_filename = self.build_state.to_source_filename
             if self.sources:
-                con.executemany(
-                    "INSERT OR REPLACE INTO dirty_sources (source) VALUES (?)",
-                    ((to_source_filename(source),) for source in self.sources),
-                )
+                DirtySources(con).update(map(to_source_filename, self.sources))
                 reporter.report_dirty_flag(True)
 
         self._auto_deferred_update_operation(operation)
