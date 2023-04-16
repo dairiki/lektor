@@ -36,7 +36,6 @@ requires-python = ">=3.7"
 dependencies = [
     "Babel",
     "click>=6.0",
-    "EXIFRead",
     "Flask",
     "importlib_metadata; python_version<'3.8'",
     "inifile>=0.4.1",
