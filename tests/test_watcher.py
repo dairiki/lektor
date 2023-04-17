@@ -65,6 +65,9 @@ class TestBasicWatcher:
                 watcher.start()
 
 
+DEFAULT_WATCHER_TEST_TIMEOUT = 1.2 if sys.platform != "darwin" else 3.0
+
+
 @dataclass
 class WatcherTest:
     watched_path: Path
@@ -74,7 +77,7 @@ class WatcherTest:
         self,
         observer_class: Type[BaseObserver] | None = None,
         should_set_event: bool = True,
-        timeout: float = 1.2,
+        timeout: float = DEFAULT_WATCHER_TEST_TIMEOUT,
     ) -> Generator[Path, None, None]:
 
         kwargs: dict[str, Any] = {}
