@@ -87,20 +87,26 @@ class WatcherTest:
                 observer_timeout=0.1,  # fast polling timer to speed tests
             )
 
+        print(f"starting BasicWatcher({self.watched_path}, **{kwargs})")
         with BasicWatcher([os.fspath(self.watched_path)], **kwargs) as watcher:
+            print("started BasicWatcher")
             if sys.platform == "darwin":
                 # The FSEventObserver (used on macOS) seems to send events for things that
                 # happened before is was started.  Here, we wait a little bit for things to
                 # start, then discard any pre-existing events.
                 time.sleep(2.0)
                 watcher.wait(blocking=False)
+            print("waited for start of BasicWatcher")
 
             yield self.watched_path
 
+            print(f"waiting for event should_set_event={should_set_event}")
             if should_set_event:
                 assert watcher.wait(timeout=timeout)
             else:
                 assert not watcher.wait(timeout=timeout)
+            print("event wait done")
+        print("contextmanager done")
 
 
 @pytest.fixture(
