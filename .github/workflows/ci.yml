@@ -119,6 +119,8 @@ jobs:
           cache: "pip"
           cache-dependency-path: "**/pyproject.toml"
 
+      - run: ulimit -a
+
       - name: Install Linux system dependencies
         if: runner.os == 'Linux' && matrix.install-ffmpeg
         run: |
