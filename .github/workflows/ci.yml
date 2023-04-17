@@ -86,7 +86,7 @@ jobs:
   # Python tests
   ############################################################################
   python-tests:
-    name: ${{ matrix.os }} py${{ matrix.python }}
+    name: ${{ matrix.os }} py${{ matrix.python }} ffmpeg-${{ matrix.install-ffmpeg }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -108,9 +108,10 @@ jobs:
         #     python: "3.10"
         os: ["macos-latest"]
         python: ["3.7", "3.11"]
-        include:
-          - python: "3.11"
-            install-ffmpeg: true
+        install-ffmpeg: [true]
+        # include:
+        #   - python: "3.11"
+        #     install-ffmpeg: true
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
