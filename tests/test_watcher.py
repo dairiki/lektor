@@ -28,6 +28,7 @@ class BrokenObserver(PollingObserver):
         raise OSError("crapout")
 
 
+@pytest.mark.skip(reason="FLAIL")
 class TestBasicWatcher:
     # pylint: disable=no-self-use
 
@@ -79,9 +80,6 @@ class WatcherTest:
         should_set_event: bool = True,
         timeout: float = DEFAULT_WATCHER_TEST_TIMEOUT,
     ) -> Generator[Path, None, None]:
-
-        pytest.skip(reason="FLAIL")
-
         kwargs: dict[str, Any] = {}
         if observer_class is not None:
             kwargs.update(
