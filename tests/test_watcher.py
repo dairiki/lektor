@@ -48,7 +48,7 @@ class TestBasicWatcher:
         assert "crapout" in capsys.readouterr().out
 
     # @pytest.mark.skip(reason="FLAIL")
-    def , paths, capsys):
+    def test_default_observer_broken(self, paths, capsys):
         observer_classes = (BrokenObserver, BrokenObserver)
         with pytest.raises(OSError, match=r"crapout"):
             with BasicWatcher(paths, observer_classes=observer_classes):
