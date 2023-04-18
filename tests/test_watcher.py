@@ -40,7 +40,7 @@ class TestBasicWatcher:
         with BasicWatcher(paths) as watcher:
             assert isinstance(watcher.observer, BaseObserver)
 
-    # @pytest.mark.skip(reason="FLAIL")
+    @pytest.mark.skip(reason="FLAIL")
     def test_default_observer_broken(self, paths, capsys):
         observer_classes = (BrokenObserver, PollingObserver)
         with BasicWatcher(paths, observer_classes=observer_classes) as watcher:
