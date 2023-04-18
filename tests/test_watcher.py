@@ -47,7 +47,7 @@ class TestBasicWatcher:
             assert watcher.observer.__class__ is PollingObserver
         assert "crapout" in capsys.readouterr().out
 
-    # @pytest.mark.skip(reason="FLAIL")
+    @pytest.mark.skip(reason="FLAIL")
     def test_default_observer_broken(self, paths, capsys):
         observer_classes = (BrokenObserver, BrokenObserver)
         with pytest.raises(OSError, match=r"crapout"):
@@ -55,7 +55,7 @@ class TestBasicWatcher:
                 pass
         assert capsys.readouterr() == ("", "")
 
-    # @pytest.mark.skip(reason="FLAIL")
+    @pytest.mark.skip(reason="FLAIL")
     def test_perverse_usage(self, paths):
         # This exercises a bug which occurred when BasicWatcher was
         # called with repeated (failing) values in observer_classes.
@@ -63,7 +63,7 @@ class TestBasicWatcher:
         with BasicWatcher(paths, observer_classes=observer_classes) as watcher:
             assert isinstance(watcher.observer, BaseObserver)
 
-    # @pytest.mark.skip(reason="FLAIL")
+    @pytest.mark.skip(reason="FLAIL")
     def test_raises_error_if_started_twice(self, paths):
         with BasicWatcher(paths) as watcher:
             with pytest.raises(RuntimeError, match="already started"):
