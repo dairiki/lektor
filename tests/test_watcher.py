@@ -28,7 +28,6 @@ class BrokenObserver(PollingObserver):
         raise OSError("crapout")
 
 
-@pytest.mark.skip(reason="FLAIL")
 class TestBasicWatcher:
     # pylint: disable=no-self-use
 
@@ -40,12 +39,14 @@ class TestBasicWatcher:
         with BasicWatcher(paths) as watcher:
             assert isinstance(watcher.observer, BaseObserver)
 
+    @pytest.mark.skip(reason="FLAIL")
     def test_default_observer_broken(self, paths, capsys):
         observer_classes = (BrokenObserver, PollingObserver)
         with BasicWatcher(paths, observer_classes=observer_classes) as watcher:
             assert watcher.observer.__class__ is PollingObserver
         assert "crapout" in capsys.readouterr().out
 
+    @pytest.mark.skip(reason="FLAIL")
     def test_default_observer_is_polling(self, paths, capsys):
         observer_classes = (BrokenObserver, BrokenObserver)
         with pytest.raises(OSError, match=r"crapout"):
@@ -53,6 +54,7 @@ class TestBasicWatcher:
                 pass
         assert capsys.readouterr() == ("", "")
 
+    @pytest.mark.skip(reason="FLAIL")
     def test_perverse_usage(self, paths):
         # This exercises a bug which occurred when BasicWatcher was
         # called with repeated (failing) values in observer_classes.
@@ -229,7 +231,6 @@ def test_BasicWatcher_ignores_opened_file(watcher_test: WatcherTest) -> None:
             fp.read()
 
 
-@pytest.mark.skip(reason="FLAIL")
 def test_is_interesting(env):
     # pylint: disable=no-member
     cache_dir = py.path.local(utils.get_cache_dir())
