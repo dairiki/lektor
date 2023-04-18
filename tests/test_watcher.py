@@ -47,8 +47,8 @@ class TestBasicWatcher:
             assert watcher.observer.__class__ is PollingObserver
         assert "crapout" in capsys.readouterr().out
 
-    @pytest.mark.skip(reason="FLAIL")
-    def test_default_observer_is_polling(self, paths, capsys):
+    # @pytest.mark.skip(reason="FLAIL")
+    def , paths, capsys):
         observer_classes = (BrokenObserver, BrokenObserver)
         with pytest.raises(OSError, match=r"crapout"):
             with BasicWatcher(paths, observer_classes=observer_classes):
