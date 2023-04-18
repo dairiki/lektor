@@ -35,7 +35,7 @@ class TestBasicWatcher:
     def paths(self, tmp_path):
         return [str(tmp_path)]
 
-    @pytest.mark.skip(reason="FLAIL")
+    # @pytest.mark.skip(reason="FLAIL")
     def test_creates_observer(self, paths):
         with BasicWatcher(paths) as watcher:
             assert isinstance(watcher.observer, BaseObserver)
