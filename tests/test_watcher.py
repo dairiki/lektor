@@ -21,9 +21,6 @@ from lektor.watcher import BasicWatcher
 from lektor.watcher import Watcher
 
 
-pytestmark = pytest.mark.skip(reason="FLAIL")
-
-
 class BrokenObserver(PollingObserver):
     # The InotifyObserver, when it fails due to insufficient system
     # inotify resources, does not fail until an attempt is made to start it.
@@ -234,6 +231,7 @@ def test_BasicWatcher_ignores_opened_file(watcher_test: WatcherTest) -> None:
             fp.read()
 
 
+@pytest.mark.skip(reason="FLAIL")
 def test_is_interesting(env):
     # pylint: disable=no-member
     cache_dir = py.path.local(utils.get_cache_dir())
