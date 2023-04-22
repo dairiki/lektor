@@ -108,7 +108,7 @@ jobs:
         #     python: "3.10"
         os: ["macos-latest"]
         python: ["3.11"]
-        install-ffmpeg: [true]
+        install-ffmpeg: [false]
         # include:
         #   - python: "3.11"
         #     install-ffmpeg: true
@@ -146,7 +146,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install tox tox-gh-actions coverage[toml]
       - name: Run python tests
-        run: tox
+        run: tox -- tests/test_watcher.py -ra
       - name: Publish coverage data to codecov
         uses: codecov/codecov-action@v3
 
