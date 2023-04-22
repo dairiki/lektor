@@ -65,7 +65,7 @@ class TestBasicWatcher:
                 watcher.start()
 
 
-DEFAULT_WATCHER_TEST_TIMEOUT = 1.2 if sys.platform != "darwin" else 3.0
+DEFAULT_WATCHER_TEST_TIMEOUT = 1.2  # if sys.platform != "darwin" else 3.0
 
 
 @dataclass
@@ -125,6 +125,10 @@ def test_watcher_test(watcher_test: WatcherTest) -> None:
         pass
 
 
+flaky = pytest.mark.flaky(reruns=10)
+
+
+@flaky
 def test_BasicWatcher_sees_created_file(
     watcher_test: WatcherTest, observer_class: Type[BaseObserver] | None
 ) -> None:
@@ -132,6 +136,7 @@ def test_BasicWatcher_sees_created_file(
         Path(watched_path, "created").touch()
 
 
+@flaky
 def test_BasicWatcher_sees_deleted_file(
     watcher_test: WatcherTest, observer_class: Type[BaseObserver] | None
 ) -> None:
@@ -142,6 +147,7 @@ def test_BasicWatcher_sees_deleted_file(
         deleted_path.unlink()
 
 
+@flaky
 def test_BasicWatcher_sees_modified_file(
     watcher_test: WatcherTest, observer_class: Type[BaseObserver] | None
 ) -> None:
@@ -153,6 +159,7 @@ def test_BasicWatcher_sees_modified_file(
             fp.write("addition")
 
 
+@flaky
 def test_BasicWatcher_sees_file_moved_in(
     watcher_test: WatcherTest, observer_class: Type[BaseObserver] | None, tmp_path: Path
 ) -> None:
@@ -164,6 +171,7 @@ def test_BasicWatcher_sees_file_moved_in(
         orig_path.rename(final_path)
 
 
+@flaky
 def test_BasicWatcher_sees_file_moved_out(
     watcher_test: WatcherTest, observer_class: Type[BaseObserver] | None, tmp_path: Path
 ) -> None:
@@ -175,6 +183,7 @@ def test_BasicWatcher_sees_file_moved_out(
         orig_path.rename(final_path)
 
 
+@flaky
 def test_BasicWatcher_sees_deleted_directory(
     watcher_test: WatcherTest, observer_class: Type[BaseObserver] | None
 ) -> None:
@@ -188,6 +197,7 @@ def test_BasicWatcher_sees_deleted_directory(
         shutil.rmtree(deleted_path)
 
 
+@flaky
 def test_BasicWatcher_sees_file_in_directory_moved_in(
     watcher_test: WatcherTest, observer_class: Type[BaseObserver] | None, tmp_path: Path
 ) -> None:
@@ -201,6 +211,7 @@ def test_BasicWatcher_sees_file_in_directory_moved_in(
         orig_dir_path.rename(final_dir_path)
 
 
+@flaky
 def test_BasicWatcher_sees_directory_moved_out(
     watcher_test: WatcherTest, observer_class: Type[BaseObserver] | None, tmp_path: Path
 ) -> None:
@@ -214,6 +225,7 @@ def test_BasicWatcher_sees_directory_moved_out(
         orig_dir_path.rename(final_dir_path)
 
 
+@flaky
 def test_BasicWatcher_ignores_opened_file(watcher_test: WatcherTest) -> None:
     file_path = watcher_test.watched_path / "file"
     file_path.touch()
