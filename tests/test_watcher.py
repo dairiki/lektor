@@ -89,10 +89,9 @@ class WatcherTest:
 
         if sys.platform == "darwin":
             # The FSEventObserver (used on macOS) seems to send events for things that
-            # happened before is was started.  Here, we wait a little bit for things to
-            # start, then discard any pre-existing events.
-            time.sleep(2.0)
-            # watcher.wait(blocking=False)
+            # happened before is was started.  Here, we wait a little bit to let the
+            # dust settle.
+            time.sleep(0.1)
 
         with BasicWatcher([os.fspath(self.watched_path)], **kwargs) as watcher:
             yield self.watched_path
