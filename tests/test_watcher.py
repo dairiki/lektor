@@ -87,7 +87,7 @@ class WatcherTest:
                 observer_timeout=0.1,  # fast polling timer to speed tests
             )
 
-        if sys.platform == "darwin":
+        if sys.platform == "darwin" and False:
             # The FSEventObserver (used on macOS) seems to send events for things that
             # happened before is was started.  Here, we wait a little bit to let the
             # dust settle.
