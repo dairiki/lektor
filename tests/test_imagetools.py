@@ -4,6 +4,7 @@ import dataclasses
 import datetime
 import html.parser
 import io
+import weakref
 from contextlib import contextmanager
 from fractions import Fraction
 from pathlib import Path
@@ -20,6 +21,7 @@ from lektor.imagetools import _convert_color_profile_to_srgb
 from lektor.imagetools import _create_artifact
 from lektor.imagetools import _create_thumbnail
 from lektor.imagetools import _get_thumbnail_url_path
+from lektor.imagetools import _open_image
 from lektor.imagetools import _parse_svg_units_px
 from lektor.imagetools import _save_position
 from lektor.imagetools import _to_altitude
@@ -38,6 +40,7 @@ from lektor.imagetools import read_exif
 from lektor.imagetools import Thumbnail
 from lektor.imagetools import ThumbnailMode
 from lektor.imagetools import ThumbnailParams
+from lektor.reporter import BufferReporter
 
 
 HERE = Path(__file__).parent
@@ -470,6 +473,7 @@ def test_create_thumbnail(dummy_image):
 
 class DummyArtifact:
     image = None
+    build_state = None
 
     @contextmanager
     def open(self, _mode):
@@ -738,3 +742,72 @@ def test_exif(demo_test_jpg):
         assert not demo_test_jpg.exif
     else:
         assert demo_test_jpg.exif
+
+
+################################################################
+#
+# Caching tests
+
+
+def test_Image_gets_collected_immediately():
+    # Sanity Check:
+    #
+    # Test that PIL Images get garbage collected as soon as we
+    # delete the last external reference to them.
+    image = PIL.Image.open(Path(DEMO_PROJECT, "test.jpg"))
+    ref = weakref.ref(image)
+    with image.resize((10, 20)) as thumbnail:
+        assert thumbnail.width == 10
+
+    del image
+    assert ref() is None
+
+
+def test_Image_exif_data_valid_after_close():
+    # Sanity Check:
+    #
+    # Test that exif data retrieved from Image.getexif() is still usable
+    # after image is closed.
+    with PIL.Image.open(Path(DEMO_PROJECT, "test.jpg")) as image:
+        ref = weakref.ref(image)
+        exif = image.getexif()
+    del image
+    assert ref() is None
+
+    assert exif[EXIF_ORIENTATION_TAG] == 6
+    exif_ifd = exif.get_ifd(0x8769)
+    assert exif_ifd[0x8827] == 160  # ISOSpeedRatings
+    gps_ifd = exif.get_ifd(0x8825)
+    assert gps_ifd[0x001D] == "2015:12:06"  # GPSDateStamp
+
+
+def test_open_image_caches_images(builder):
+    image1 = HERE / "exif-test-1.jpg"
+    image2 = HERE / "exif-test-2.gif"
+    build_state = builder.new_build_state()
+    assert _open_image(image1, build_state) is _open_image(image1, build_state)
+    assert _open_image(image1, build_state) is not _open_image(image2, build_state)
+    assert _open_image(image2, build_state) is _open_image(image2, build_state)
+
+
+def test_Image_does_not_persist_past_build(builder, pad, monkeypatch):
+    opened_images = []
+    build_state_ref = None
+
+    def open_image_spy(source, build_state):
+        nonlocal build_state_ref
+        build_state_ref = weakref.ref(build_state)
+        image = _open_image(source, build_state)
+        opened_images.append(weakref.ref(image))
+        return image
+
+    monkeypatch.setattr("lektor.imagetools._open_image", open_image_spy)
+
+    with BufferReporter(pad.env) as reporter:
+        builder.build(pad.root)
+    assert len(reporter.get_failures()) == 0
+
+    assert build_state_ref() is None
+    assert len(opened_images) > 0
+    for ref in opened_images:
+        assert ref() is None

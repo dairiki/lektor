@@ -4,6 +4,7 @@ import dataclasses
 import io
 import math
 import numbers
+import itertools
 import posixpath
 import re
 import sys
@@ -39,6 +40,7 @@ import PIL.Image
 import PIL.ImageCms
 import PIL.ImageOps
 
+from lektor.context import get_ctx
 from lektor.utils import deprecated
 from lektor.utils import get_dependent_url
 
@@ -46,6 +48,7 @@ if TYPE_CHECKING:
     from typing import Literal
     from _typeshed import SupportsRead
     from lektor.builder import Artifact
+    from lektor.builder import BuildState
     from lektor.context import Context
 
 if sys.version_info >= (3, 10):
@@ -865,18 +868,72 @@ def _create_thumbnail(
     return thumbnail
 
 
+@dataclasses.dataclass(frozen=True)
+class _ImageCache:
+    """An LRU cache for opened PIL Images."""
+
+    cache_size: int = 5
+    cache: dict[Path, PIL.Image.Image] = dataclasses.field(default_factory=dict)
+
+    def open(self, source_image: Path) -> PIL.Image.Image:
+        # Here we use the fact that dicts are order preserving.
+        # If the image is in the cache, we remove it, and re-add it at the end.
+        # (There are better solutions, but this is simple.)
+        cache = self.cache
+        try:
+            image = cache.pop(source_image)
+        except KeyError:
+            image = PIL.Image.open(source_image)
+
+            nstale = max(0, len(cache) + 1 - self.cache_size)
+            stale_keys = list(itertools.islice(cache, nstale))
+            for key in stale_keys:
+                del cache[key]
+
+        self.cache[source_image] = image
+        return image
+
+
+def _open_image(
+    source_image: str | Path, build_state: BuildState | None = None
+) -> PIL.Image.Image:
+    """Open image, possibly returning a cached Image if it has already been opened.
+
+    The image cache has the same lifetime as the path cache (build_state.path_cache).
+    Typically the path cache lifecycle is one top-level Builder operation — e.g. one
+    "build_all", or one "prune" operation.
+
+    """
+    if build_state is None:
+        ctx = get_ctx()
+        if ctx is not None:
+            build_state = ctx.build_state
+
+    if build_state is None:
+        return PIL.Image.open(source_image)
+
+    path_cache = build_state.path_cache
+    image_cache = getattr(path_cache, "_imagetools_cache", None)
+    if image_cache is None:
+        # FIXME: make cache size configurable
+        image_cache = path_cache._imagetools_cache = _ImageCache()
+    return image_cache.open(Path(source_image))
+
+
 def _create_artifact(
-    source_image: str | Path | SupportsRead[bytes],
+    source_image: str | Path,
     thumbnail_params: ThumbnailParams,
     artifact: Artifact,
 ) -> None:
     """Create artifact by computing thumbnail for source image."""
     # XXX: would passing explicit `formats` to Image.open make it any faster?
-    with PIL.Image.open(source_image) as image:
-        thumbnail = _create_thumbnail(image, thumbnail_params)
+
+    image = _open_image(source_image, artifact.build_state)
+
+    with _create_thumbnail(image, thumbnail_params) as thumbnail:
         save_params = thumbnail_params.get_save_params()
-    with artifact.open("wb") as fp:
-        thumbnail.save(fp, **save_params)
+        with artifact.open("wb") as fp:
+            thumbnail.save(fp, **save_params)
 
 
 def _get_thumbnail_url_path(
