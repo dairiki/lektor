@@ -7,6 +7,7 @@ import sqlite3
 import stat
 import sys
 import tempfile
+import weakref
 from collections import deque
 from collections import namedtuple
 from contextlib import contextmanager
@@ -667,7 +668,7 @@ class Artifact:
         extra=None,
         config_hash=None,
     ):
-        self.build_state = build_state
+        self.build_state_ref = weakref.ref(build_state)  # break ref cycle
         self.artifact_name = artifact_name
         self.dst_filename = dst_filename
         self.sources = sources
@@ -685,6 +686,10 @@ class Artifact:
             self.__class__.__name__,
             self.dst_filename,
         )
+
+    @property
+    def build_state(self):
+        return self.build_state_ref()
 
     @property
     def is_current(self):

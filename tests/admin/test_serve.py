@@ -3,6 +3,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
+from unittest import mock
 from urllib.parse import parse_qsl
 from urllib.parse import urljoin
 from urllib.parse import urlparse
@@ -82,7 +83,7 @@ def make_dummy_artifact(tmp_path):
         if content is not None:
             path.write_text(content)
         return Artifact(
-            build_state=None,  # bogus
+            build_state=mock.Mock(name="BuildState"),  # bogus
             artifact_name=artifact_name,
             dst_filename=str(path),
             sources=[],

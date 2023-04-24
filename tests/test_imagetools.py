@@ -791,6 +791,8 @@ def test_open_image_caches_images(builder):
 
 
 def test_Image_does_not_persist_past_build(builder, pad, monkeypatch):
+    # test that despite our caching of opened images, images get
+    # garbage collected after a build
     opened_images = []
     build_state_ref = None
 

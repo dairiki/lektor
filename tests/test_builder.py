@@ -1,3 +1,4 @@
+import weakref
 from pathlib import Path
 
 import pytest
@@ -93,7 +94,9 @@ def test_basic_artifact_current_test(pad, builder, reporter):
     def build():
         reporter.clear()
         prog, _ = builder.build(post1)
-        return prog.artifacts[0]
+        artifact = prog.artifacts[0]
+        assert artifact.is_current
+        return artifact
 
     artifact = build()
 
@@ -142,11 +145,7 @@ def test_basic_artifact_current_test(pad, builder, reporter):
         "models/blog-post.ini",
     }
 
-    assert artifact.is_current
-
     artifact = build()
-
-    assert artifact.is_current
 
     assert reporter.get_major_events() == [
         (
@@ -386,3 +385,38 @@ def test_second_build_all_builds_nothing(scratch_builder, scratch_project_data):
 
     with AssertBuildsNothingReporter():
         scratch_builder.build_all()
+
+
+@pytest.fixture
+def check_build_state_collected(builder, monkeypatch):
+    new_build_state = builder.new_build_state
+    build_states = weakref.WeakSet()
+
+    def new_build_state_spy(path_cache=None):
+        build_state = new_build_state(path_cache)
+        build_states.add(build_state)
+        return build_state
+
+    monkeypatch.setattr(builder, "new_build_state", new_build_state_spy)
+
+    yield
+
+    assert len(build_states) == 0
+
+
+@pytest.mark.usefixtures("check_build_state_collected")
+def test_build_state_collected_after_build(builder, pad, reporter):
+    builder.build(pad.get("extra"))
+    assert len(reporter.get_failures()) == 0
+
+
+@pytest.mark.usefixtures("check_build_state_collected")
+def test_build_state_collected_after_build_all(builder, pad, reporter):
+    builder.build_all()
+    assert len(reporter.get_failures()) == 0
+
+
+@pytest.mark.usefixtures("check_build_state_collected")
+def test_build_state_collected_after_prune(builder, pad, reporter):
+    builder.prune()
+    assert len(reporter.get_failures()) == 0
