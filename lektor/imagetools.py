@@ -4,7 +4,6 @@ import dataclasses
 import io
 import math
 import numbers
-import itertools
 import posixpath
 import re
 import sys
@@ -14,6 +13,7 @@ from datetime import datetime
 from enum import Enum
 from enum import IntEnum
 from fractions import Fraction
+from functools import lru_cache
 from functools import partial
 from functools import wraps
 from pathlib import Path
@@ -868,30 +868,17 @@ def _create_thumbnail(
     return thumbnail
 
 
-@dataclasses.dataclass(frozen=True)
 class _ImageCache:
     """An LRU cache for opened PIL Images."""
 
-    cache_size: int = 5
-    cache: dict[Path, PIL.Image.Image] = dataclasses.field(default_factory=dict)
+    open_image: Callable[[Path], PIL.Image.Image]
 
-    def open(self, source_image: Path) -> PIL.Image.Image:
-        # Here we use the fact that dicts are order preserving.
-        # If the image is in the cache, we remove it, and re-add it at the end.
-        # (There are better solutions, but this is simple.)
-        cache = self.cache
-        try:
-            image = cache.pop(source_image)
-        except KeyError:
-            image = PIL.Image.open(source_image)
+    def __init__(self, maxsize: int = 5):
+        self.open_image = lru_cache(maxsize)(self._open_image)
 
-            nstale = max(0, len(cache) + 1 - self.cache_size)
-            stale_keys = list(itertools.islice(cache, nstale))
-            for key in stale_keys:
-                del cache[key]
-
-        self.cache[source_image] = image
-        return image
+    @staticmethod
+    def _open_image(source_image: Path) -> PIL.Image.Image:
+        return PIL.Image.open(source_image)
 
 
 def _open_image(
@@ -913,11 +900,11 @@ def _open_image(
         return PIL.Image.open(source_image)
 
     path_cache = build_state.path_cache
-    image_cache = getattr(path_cache, "_imagetools_cache", None)
+    image_cache: _ImageCache | None = getattr(path_cache, "_imagetools_cache", None)
     if image_cache is None:
         # FIXME: make cache size configurable
         image_cache = path_cache._imagetools_cache = _ImageCache()
-    return image_cache.open(Path(source_image))
+    return image_cache.open_image(Path(source_image))
 
 
 def _create_artifact(

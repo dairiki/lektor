@@ -794,13 +794,12 @@ def test_Image_does_not_persist_past_build(builder, pad, monkeypatch):
     # test that despite our caching of opened images, images get
     # garbage collected after a build
     opened_images = []
-    build_state_ref = None
+    build_states = weakref.WeakSet()
 
     def open_image_spy(source, build_state):
-        nonlocal build_state_ref
-        build_state_ref = weakref.ref(build_state)
         image = _open_image(source, build_state)
         opened_images.append(weakref.ref(image))
+        build_states.add(build_state)
         return image
 
     monkeypatch.setattr("lektor.imagetools._open_image", open_image_spy)
@@ -809,7 +808,7 @@ def test_Image_does_not_persist_past_build(builder, pad, monkeypatch):
         builder.build(pad.root)
     assert len(reporter.get_failures()) == 0
 
-    assert build_state_ref() is None
     assert len(opened_images) > 0
     for ref in opened_images:
         assert ref() is None
+    assert len(build_states) == 0
