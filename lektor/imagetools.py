@@ -590,31 +590,33 @@ def _save_position(fp: BinaryIO) -> Generator[BinaryIO, None, None]:
         fp.seek(position)
 
 
+def _get_image(source: str | Path | BinaryIO) -> PIL.Image.Image:
+    if isinstance(source, (str, Path)):
+        # return possibly cached Image
+        return _open_image(source)
+    else:
+        warnings.warn(
+            "Passing a file object to 'get_image_info' is deprecated "
+            "since version 3.4.0. Pass a file path instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        with _save_position(source) as fp_:
+            return PIL.Image.open(fp_)
+
+
 def get_image_info(source: str | Path | BinaryIO) -> ImageInfo:
     """Determine type and dimensions of an image file."""
     try:
-        if isinstance(source, (str, Path)):
-            with PIL.Image.open(source) as image:
-                return _PIL_image_info(image)
-        else:
-            warnings.warn(
-                "Passing a file object to 'get_image_info' is deprecated "
-                "since version 3.4.0. Pass a file path instead.",
-                DeprecationWarning,
-            )
-            with _save_position(source) as fp_:
-                with PIL.Image.open(fp_) as image:
-                    return _PIL_image_info(image)
-
+        return _PIL_image_info(_get_image(source))
     except UnidentifiedImageError:
         return get_svg_info(source)
 
 
-def read_exif(source: str | Path | SupportsRead[bytes]) -> EXIFInfo:
+def read_exif(source: str | Path | BinaryIO) -> EXIFInfo:
     """Reads exif data from an image file."""
     try:
-        with PIL.Image.open(source) as image:
-            exif = image.getexif()
+        exif = _get_image(source).getexif()
     except UnidentifiedImageError:
         exif = PIL.Image.Exif()
     return EXIFInfo(exif)

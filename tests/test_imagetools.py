@@ -15,6 +15,7 @@ import PIL
 import pytest
 from pytest import approx
 
+from lektor.context import get_ctx
 from lektor.imagetools import _combine_make
 from lektor.imagetools import _compute_cropbox
 from lektor.imagetools import _convert_color_profile_to_srgb
@@ -224,13 +225,14 @@ TEST_IMAGE_EXIF_INFO = {
     ],
 )
 def test_read_exif_attr(path, attr, expected):
-    with path.open("rb") as fp:
-        exif = read_exif(fp)
+    exif = read_exif(path)
     assert getattr(exif, attr) == expected
 
 
-def test_read_exif_unrecognized_image():
-    exif_info = read_exif(io.BytesIO(b"unrecognized-image"))
+def test_read_exif_unrecognized_image(tmp_path):
+    image = tmp_path / "image"
+    image.write_bytes(b"unrecognized-image")
+    exif_info = read_exif(image)
     assert not exif_info
 
 
@@ -796,10 +798,15 @@ def test_Image_does_not_persist_past_build(builder, pad, monkeypatch):
     opened_images = []
     build_states = weakref.WeakSet()
 
-    def open_image_spy(source, build_state):
+    def open_image_spy(source, build_state=None):
+        if build_state is None:
+            ctx = get_ctx()
+            if ctx is not None:
+                build_state = ctx.build_state
         image = _open_image(source, build_state)
         opened_images.append(weakref.ref(image))
-        build_states.add(build_state)
+        if build_state is not None:
+            build_states.add(build_state)
         return image
 
     monkeypatch.setattr("lektor.imagetools._open_image", open_image_spy)
