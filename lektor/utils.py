@@ -13,6 +13,7 @@ import unicodedata
 import urllib.parse
 import uuid
 import warnings
+import weakref
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -21,6 +22,7 @@ from functools import wraps
 from pathlib import PurePosixPath
 from typing import Any
 from typing import Callable
+from typing import cast
 from typing import ClassVar
 from typing import Hashable
 from typing import Iterable
@@ -943,3 +945,48 @@ def deprecated(*args: Any, **kwargs: Any) -> _F | _Deprecate:
     if wrapped is not None:
         return deprecate(wrapped)
     return deprecate
+
+
+_T = TypeVar("_T")
+
+
+def FinalizingProxy(
+    target: _T, func: Callable[..., Any], *args: Any, **kwargs: Any
+) -> _T:
+    """Construct an object proxy that invokes a callback when it is garbage collected.
+
+    This is useful when one would like to use `weakref.finalize`_ on an object with
+    a callback (or callback arguments) that reference the object to be finalized. (This
+    does not work well since the resulting reference cycle in the finalizer prevents
+    efficient garbage collection.)
+
+    For example, this does not work as intended:
+
+        def open_file(path):
+            fp = open(path)
+            weakref.finalize(fp, fp.close)
+            return fp
+
+    but this will
+
+        def open_file(path):
+            fp = open(path)
+            return FinalizingProxy(fp, fp.close)
+
+    .. _weakref.finalize: https://docs.python.org/3/library/weakref.html#weakref.finalize
+    """
+    # NB: lie about return type
+    return cast(_T, _FinalizingProxy(target, func, *args, **kwargs))
+
+
+class _FinalizingProxy:
+    __slots__ = ["target", "__weakref__"]
+
+    def __init__(
+        self, target: object, func: Callable[..., Any], *args: Any, **kwargs: Any
+    ) -> None:
+        self.target = target
+        weakref.finalize(self, func, *args, **kwargs)
+
+    def __getattribute__(self, name: str) -> object:
+        return getattr(object.__getattribute__(self, "target"), name)

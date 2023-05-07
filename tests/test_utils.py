@@ -2,12 +2,14 @@ import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import islice
+from unittest import mock
 from urllib.parse import urlsplit
 
 import pytest
 
 from lektor.utils import build_url
 from lektor.utils import deprecated
+from lektor.utils import FinalizingProxy
 from lektor.utils import is_path_child_of
 from lektor.utils import join_path
 from lektor.utils import magic_split_ext
@@ -341,3 +343,33 @@ def _warning_line(warning: warnings.WarningMessage) -> str:
     """Get the text of the line for which warning was issued."""
     with open(warning.filename, "r", encoding="utf-8") as fp:
         return next(islice(fp, warning.lineno - 1, None), None)
+
+
+def test_FinalizingProxy_finalized():
+    finalize = mock.Mock(name="finalize")
+
+    proxy = FinalizingProxy(object(), finalize)
+    assert not finalize.called
+    del proxy
+    assert finalize.called
+
+
+def test_FinalizingProxy_attr():
+    class MyClass:
+        def m(self):
+            return 42
+
+    proxy = FinalizingProxy(MyClass(), mock.Mock(name="finalize"))
+    assert proxy.m() == 42
+
+
+def test_FinalizingProxy_class():
+    class MyClass:
+        pass
+
+    proxy = FinalizingProxy(MyClass(), mock.Mock(name="finalize"))
+    assert proxy.__class__ is MyClass
+    assert isinstance(proxy, MyClass)
+    assert isinstance(proxy, object)
+    assert not isinstance(proxy, int)
+    assert type(proxy) is not MyClass  # _FinalizingProxy

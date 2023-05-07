@@ -42,6 +42,7 @@ import PIL.ImageOps
 
 from lektor.context import get_ctx
 from lektor.utils import deprecated
+from lektor.utils import FinalizingProxy
 from lektor.utils import get_dependent_url
 
 if TYPE_CHECKING:
@@ -875,12 +876,8 @@ class _ImageCache:
 
     open_image: Callable[[Path], PIL.Image.Image]
 
-    def __init__(self, maxsize: int = 5):
-        self.open_image = lru_cache(maxsize)(self._open_image)
-
-    @staticmethod
-    def _open_image(source_image: Path) -> PIL.Image.Image:
-        return PIL.Image.open(source_image)
+    def __init__(self, open_image: Callable[[Path], PIL.Image.Image], maxsize: int = 5):
+        self.open_image = lru_cache(maxsize)(open_image)
 
 
 def _open_image(
@@ -898,14 +895,22 @@ def _open_image(
         if ctx is not None:
             build_state = ctx.build_state
 
+    def safe_open_image(source_image: str | Path) -> PIL.Image.Image:
+        """Ensure Images are closed before they get garbage collected."""
+        image = PIL.Image.open(source_image)
+        return FinalizingProxy(image, image.close)
+
     if build_state is None:
-        return PIL.Image.open(source_image)
+        return safe_open_image(source_image)
 
     path_cache = build_state.path_cache
     image_cache: _ImageCache | None = getattr(path_cache, "_imagetools_cache", None)
     if image_cache is None:
-        # FIXME: make cache size configurable
-        image_cache = path_cache._imagetools_cache = _ImageCache()
+        image_cache = path_cache._imagetools_cache = _ImageCache(
+            # FIXME: make cache size configurable
+            safe_open_image,
+            maxsize=5,
+        )
     return image_cache.open_image(Path(source_image))
 
 

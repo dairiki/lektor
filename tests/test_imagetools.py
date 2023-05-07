@@ -44,6 +44,10 @@ from lektor.imagetools import ThumbnailParams
 from lektor.reporter import BufferReporter
 
 
+# Check for "unclosed file" ResourceWarnings arising from not explicitly closing
+# PIL Image instances.
+pytestmark = pytest.mark.filterwarnings("error:(?i).*unclosed file:ResourceWarning")
+
 HERE = Path(__file__).parent
 DEMO_PROJECT = HERE / "demo-project/content"
 COLORSPACE_TEST_JPG = DEMO_PROJECT / "colorspace-test/rgb-to-gbr-test.jpg"
@@ -819,3 +823,12 @@ def test_Image_does_not_persist_past_build(builder, pad, monkeypatch):
     for ref in opened_images:
         assert ref() is None
     assert len(build_states) == 0
+
+
+@pytest.mark.xfail(reason="PIL does not explicitly close managed fp")
+# fail on "unclosed file" ResourceWarnings
+@pytest.mark.filterwarnings("error:(?i).*unclosed.*file:ResourceWarning")
+@pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning")
+def test_PIL_Image_closes_fp():
+    ref = weakref.ref(PIL.Image.open("tests/exif-test-1.jpg"))
+    assert ref() is None
