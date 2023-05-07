@@ -246,7 +246,13 @@ class DummyFile:
         (DummyImage(10, 20, "GIF"), ("gif", 10, 20)),
         (DummyImage(10, 20, "PNG"), ("png", 10, 20)),
         (DummyImage(10, 20, "JPEG", orientation=5), ("jpeg", 20, 10)),
-        (DummyImage(10, 20, "PNG", orientation=7), ("png", 20, 10)),
+        pytest.param(
+            DummyImage(10, 20, "PNG", orientation=7),
+            ("png", 20, 10),
+            marks=pytest.mark.xfail(
+                reason="we do not check Exif orientation on PNG images"
+            ),
+        ),
         (DummyImage(10, 20, "PPM"), (None, None, None)),
         (DummySVGImage("10px", "20px"), ("svg", 10, 20)),
         (DummySVGImage("10", "20", xml_decl=None), ("svg", 10, 20)),

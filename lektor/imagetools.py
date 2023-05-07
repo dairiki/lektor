@@ -362,10 +362,19 @@ def _PIL_image_info(
     width = image.width
     height = image.height
 
-    exif = image.getexif()
-    orientation = exif.get(0x0112)
-    if orientation in TRANSPOSED_ORIENTATIONS:
-        width, height = height, width
+    if fmt == "jpeg":
+        # NB: We only check for "rotation" (swapped axes) for JPEG images.
+        #
+        # Calling PngImageFile.getexif() is slow. It results in the entire image being
+        # read and decoded. (In contrast reading Exif tags form JPEG files is much
+        # quicker and does not necessitate decoding the image.)
+        #
+        # Our old (pre-Pillow) code only checked the Exif Orientation tag for JPEGs,
+        # so we do the same.
+        exif = image.getexif()
+        orientation = exif.get(0x0112)
+        if orientation in TRANSPOSED_ORIENTATIONS:
+            width, height = height, width
 
     return fmt, width, height
 
