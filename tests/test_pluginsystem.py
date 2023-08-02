@@ -95,7 +95,7 @@ class DummyPluginLoader(Loader):
         return None
 
     def exec_module(self, module):
-        setattr(module, "DummyPlugin", DummyPlugin)
+        module.DummyPlugin = DummyPlugin
 
 
 class DummyPluginFinder(metadata.DistributionFinder):
@@ -108,7 +108,7 @@ class DummyPluginFinder(metadata.DistributionFinder):
             return ModuleSpec(fullname, DummyPluginLoader())
         return None
 
-    def find_distributions(self, context=metadata.DistributionFinder.Context()):
+    def find_distributions(self, context="ignored"):
         return [self.distribution]
 
 
@@ -182,7 +182,7 @@ class TestPlugin:
         plugin = DummyPlugin(env, "dummy-plugin")
         del env
         with pytest.raises(RuntimeError, match=r"Environment went away"):
-            getattr(plugin, "env")
+            plugin.env  # pylint: disable=W0104
 
     def test_version(self, dummy_plugin, dummy_plugin_distribution):
         assert dummy_plugin.version == dummy_plugin_distribution.version
@@ -308,7 +308,7 @@ class TestPluginController:
         plugin_controller = PluginController(env)
         del env
         with pytest.raises(RuntimeError, match=r"Environment went away"):
-            getattr(plugin_controller, "env")
+            plugin_controller.env  # pylint: disable=W0104
 
     def test_instantiate_plugin(self, plugin_controller, env):
         plugin_controller.instanciate_plugin("plugin-id", DummyPlugin)
