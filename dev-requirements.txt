@@ -1,0 +1,29 @@
+# Install Lektor in editable mode
+-e .
+
+# These are required to run the pytest tests
+pytest
+pytest-click
+pytest-mock
+coverage[toml]
+importlib_metadata; python_version<"3.10"
+iniconfig
+hatchling
+
+# In addtion to the above, pylint is required to run pylint
+pylint
+
+# The following are not required for the tests, but are still useful
+# in a dev environment.
+#
+# pre-commit runs flake8 & flake8-bugbear
+#
+# Install if you want to be able to run it manually as well
+flake8
+flake8-bugbear
+
+# We're working on adding type annotations.  Here's what's need to run mypy.
+mypy
+types-inifile
+types-pillow
+types-requests
