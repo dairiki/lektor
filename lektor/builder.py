@@ -37,60 +37,57 @@ def create_tables(con):
     else:
         without_rowid = ""
 
-    try:
-        con.execute(
-            f"""
-            create table if not exists artifacts (
-                artifact text,
-                source text,
-                source_mtime integer,
-                source_size integer,
-                source_checksum text,
-                is_dir integer,
-                is_primary_source integer,
-                primary key (artifact, source)
-            ) {without_rowid};
+    con.execute(
+        f"""
+        create table if not exists artifacts (
+            artifact text,
+            source text,
+            source_mtime integer,
+            source_size integer,
+            source_checksum text,
+            is_dir integer,
+            is_primary_source integer,
+            primary key (artifact, source)
+        ) {without_rowid};
+    """
+    )
+    con.execute(
         """
-        )
-        con.execute(
-            """
-            create index if not exists artifacts_source on artifacts (
-                source
-            );
-        """
-        )
-        con.execute(
-            f"""
-            create table if not exists artifact_config_hashes (
-                artifact text,
-                config_hash text,
-                primary key (artifact)
-            ) {without_rowid};
-        """
-        )
-        con.execute(
-            f"""
-            create table if not exists dirty_sources (
-                source text,
-                primary key (source)
-            ) {without_rowid};
-        """
-        )
-        con.execute(
-            f"""
-            create table if not exists source_info (
-                path text,
-                alt text,
-                lang text,
-                type text,
-                source text,
-                title text,
-                primary key (path, alt, lang)
-            ) {without_rowid};
-        """
-        )
-    finally:
-        con.close()
+        create index if not exists artifacts_source on artifacts (
+            source
+        );
+    """
+    )
+    con.execute(
+        f"""
+        create table if not exists artifact_config_hashes (
+            artifact text,
+            config_hash text,
+            primary key (artifact)
+        ) {without_rowid};
+    """
+    )
+    con.execute(
+        f"""
+        create table if not exists dirty_sources (
+            source text,
+            primary key (source)
+        ) {without_rowid};
+    """
+    )
+    con.execute(
+        f"""
+        create table if not exists source_info (
+            path text,
+            alt text,
+            lang text,
+            type text,
+            source text,
+            title text,
+            primary key (path, alt, lang)
+        ) {without_rowid};
+    """
+    )
 
 
 class BuildState:
