@@ -9,6 +9,7 @@ import sys
 import tempfile
 from collections import deque
 from collections import namedtuple
+from contextlib import closing
 from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import chain
@@ -909,13 +910,13 @@ class Artifact:
         if self.in_update_block:
             self._pending_update_ops.append(f)
             return
-        con = self.build_state.connect_to_database()
-        try:
-            f(con)
-        except:  # noqa
-            con.rollback()
-            raise
-        con.commit()
+        with closing(self.build_state.connect_to_database()) as con:
+            try:
+                f(con)
+            except:  # noqa
+                con.rollback()
+                raise
+            con.commit()
 
     @contextmanager
     def update(self):
