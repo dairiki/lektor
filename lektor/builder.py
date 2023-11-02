@@ -227,7 +227,7 @@ class BuildState:
         """
         reporter.report_write_source_info(info)
         source = self.to_source_filename(info.filename)
-        with closing(self.connect_to_database()) as con:
+        with closing(self.connect_to_database()) as con, con:
             cur = con.cursor()
             for lang, title in info.title_i18n.items():
                 cur.execute(
@@ -235,55 +235,40 @@ class BuildState:
                     insert or replace into source_info
                         (path, alt, lang, type, source, title)
                         values (?, ?, ?, ?, ?, ?)
-                """,
+                    """,
                     [info.path, info.alt, lang, info.type, source, title],
                 )
-            con.commit()
 
     def prune_source_infos(self):
         """Remove all source infos of files that no longer exist."""
         MAX_VARS = 999  # Default SQLITE_MAX_VARIABLE_NUMBER.
         to_clean = []
-        with closing(self.connect_to_database()) as con:
-            cur = con.cursor()
-            cur.execute(
-                """
-                select distinct source from source_info
-            """
-            )
-            for (source,) in cur.fetchall():
+        with closing(self.connect_to_database()) as con, con:
+            for (source,) in con.execute("select distinct source from source_info"):
                 fs_path = os.path.join(self.env.root_path, source)
                 if not os.path.exists(fs_path):
                     to_clean.append(source)
 
             if to_clean:
+                cur = con.cursor()
                 for i in range(0, len(to_clean), MAX_VARS):
                     chunk = to_clean[i : i + MAX_VARS]
+                    placeholders = ",".join(["?"] * len(chunk))
                     cur.execute(
-                        """
-                        delete from source_info
-                         where source in (%s)
-                    """
-                        % ", ".join(["?"] * len(chunk)),
+                        f"delete from source_info where source in ({placeholders})",
                         chunk,
                     )
-
-                con.commit()
 
         for source in to_clean:
             reporter.report_prune_source_info(source)
 
     def remove_artifact(self, artifact_name):
         """Removes an artifact from the build state."""
-        with closing(self.connect_to_database()) as con:
-            cur = con.cursor()
-            cur.execute(
-                """
-                delete from artifacts where artifact = ?
-            """,
+        with closing(self.connect_to_database()) as con, con:
+            con.execute(
+                "delete from artifacts where artifact = ?",
                 [artifact_name],
             )
-            con.commit()
 
     def _any_sources_are_dirty(self, cur, sources):
         """Given a list of sources this checks if any of them are marked
@@ -818,13 +803,8 @@ class Artifact:
             cur.close()
 
         if for_failure:
-            with closing(self.build_state.connect_to_database()) as con:
-                try:
-                    operation(con)
-                except:  # noqa
-                    con.rollback()
-                    raise
-                con.commit()
+            with closing(self.build_state.connect_to_database()) as con, con:
+                operation(con)
         else:
             self._auto_deferred_update_operation(operation)
 
@@ -879,13 +859,8 @@ class Artifact:
         if self.in_update_block:
             self._pending_update_ops.append(f)
             return
-        with closing(self.build_state.connect_to_database()) as con:
-            try:
-                f(con)
-            except:  # noqa
-                con.rollback()
-                raise
-            con.commit()
+        with closing(self.build_state.connect_to_database()) as con, con:
+            f(con)
 
     @contextmanager
     def update(self):
