@@ -382,13 +382,9 @@ class BuildState:
     def iter_artifacts(self):
         """Iterates over all artifact and their file infos.."""
         with closing(self.connect_to_database()) as con:
-            cur = con.cursor()
-            cur.execute(
-                """
-                select distinct artifact from artifacts order by artifact
-            """
-            )
-            for (artifact_name,) in cur:
+            for (artifact_name,) in con.execute(
+                "select distinct artifact from artifacts order by artifact"
+            ):
                 path = self.get_destination_filename(artifact_name)
                 info = FileInfo(self.builder.env, path)
                 if info.exists:
@@ -813,15 +809,11 @@ class Artifact:
 
         def operation(con):
             sources = [self.build_state.to_source_filename(x) for x in self.sources]
-            cur = con.cursor()
-            cur.execute(
-                """
-                delete from dirty_sources where source in (%s)
-            """
-                % ", ".join(["?"] * len(sources)),
-                list(sources),
+            placeholder = ",".join(["?"] * len(sources))
+            con.execute(
+                f"delete from dirty_sources where source in ({placeholder})",
+                sources,
             )
-            cur.close()
             reporter.report_dirty_flag(False)
 
         self._auto_deferred_update_operation(operation)
@@ -832,23 +824,13 @@ class Artifact:
         """
 
         def operation(con):
-            sources = set()
-            for source in self.sources:
-                sources.add(self.build_state.to_source_filename(source))
-
-            if not sources:
-                return
-
-            cur = con.cursor()
-            cur.executemany(
-                """
-                insert or replace into dirty_sources (source) values (?)
-            """,
-                [(x,) for x in sources],
-            )
-            cur.close()
-
-            reporter.report_dirty_flag(True)
+            sources = set(map(self.build_state.to_source_filename, self.sources))
+            if sources:
+                con.executemany(
+                    "insert or replace into dirty_sources (source) values (?)",
+                    ((x,) for x in sources),
+                )
+                reporter.report_dirty_flag(True)
 
         self._auto_deferred_update_operation(operation)
 
