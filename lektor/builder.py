@@ -1254,11 +1254,7 @@ class Builder:
         return os.path.join(self.meta_path, "buildstate")
 
     def connect_to_database(self) -> sqlite3.Connection:
-        con = sqlite3.connect(
-            self.buildstate_database_filename,
-            timeout=10,
-            check_same_thread=False,
-        )
+        con = sqlite3.connect(self.buildstate_database_filename, timeout=10)
         cur = con.cursor()
         cur.execute("pragma journal_mode=WAL")
         cur.execute("pragma synchronous=NORMAL")
