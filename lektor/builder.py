@@ -1256,7 +1256,6 @@ class Builder:
     def connect_to_database(self) -> sqlite3.Connection:
         con = sqlite3.connect(
             self.buildstate_database_filename,
-            isolation_level=None,
             timeout=10,
             check_same_thread=False,
         )
