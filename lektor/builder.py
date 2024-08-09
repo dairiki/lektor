@@ -9,6 +9,7 @@ import stat
 import sys
 import tempfile
 import threading
+import warnings
 import weakref
 from collections import deque
 from collections import namedtuple
@@ -57,6 +58,7 @@ from lektor.sourcesearch import find_files
 from lektor.utils import deprecated
 from lektor.sourcesearch import FindFileResult
 from lektor.typing import ExcInfo
+from lektor.utils import DeprecatedWarning
 from lektor.utils import process_extra_flags
 from lektor.utils import prune_file_and_folder
 
@@ -529,10 +531,25 @@ class BuildState:
                 full_path = os.path.join(dst, dirpath, filename)
                 yield self.artifact_id_from_destination_filename(full_path)
 
-    def iter_unreferenced_artifacts(self, all: bool = False) -> Iterator[ArtifactId]:
+    def iter_unreferenced_artifacts(
+        self, all: bool | None = None
+    ) -> Iterator[ArtifactId]:
         """Finds all unreferenced artifacts in the build folder and yields
         them.
         """
+        if all is not None:
+            warnings.warn(
+                DeprecatedWarning(
+                    "all",
+                    reason=(
+                        "The use of the `all` parameter is deprecated. "
+                        "Use the iter_existing_artifacts method to find all existing "
+                        "artifacts."
+                    ),
+                    version="3.4.0",
+                ),
+                stacklevel=2,
+            )
 
         def _is_unreferenced(artifact_id: ArtifactId) -> bool:
             # Check whether any of the primary sources for the artifact
@@ -559,10 +576,11 @@ class BuildState:
             # no sources exist, or those that do belong to hidden records
             return True
 
-        it = self.iter_existing_artifacts()
-        if not all:
-            it = filter(_is_unreferenced, it)
-        yield from it
+        existing_artifacts = self.iter_existing_artifacts()
+        if all:
+            yield from existing_artifacts
+        else:
+            yield from filter(_is_unreferenced, existing_artifacts)
 
     def iter_artifacts(self) -> Iterator[tuple[ArtifactId, FileInfo]]:
         """Iterates over all artifact and their file infos.."""
@@ -1315,12 +1333,18 @@ class Builder:
         """This cleans up data left in the build folder that does not
         correspond to known artifacts.
         """
-        activity = "clean" if all else "prune"
         build_state = self.new_build_state()
+        if all:
+            activity = "clean"
+            iter_prunable_artifacts = build_state.iter_existing_artifacts
+        else:
+            activity = "prune"
+            iter_prunable_artifacts = build_state.iter_unreferenced_artifacts
+
         with reporter.build(activity, self):
             self.env.plugin_controller.emit("before-prune", builder=self, all=all)
 
-            for aft in build_state.iter_unreferenced_artifacts(all=all):
+            for aft in iter_prunable_artifacts():
                 reporter.report_pruned_artifact(aft)
                 filename = build_state.get_destination_filename(aft)
                 prune_file_and_folder(filename, self.destination_path)
