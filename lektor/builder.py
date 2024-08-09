@@ -351,49 +351,56 @@ class BuildState:
     _DependencyInfo = Union[
         Tuple[SourceId, "FileInfo"],
         Tuple[PackedVirtualSourcePath, "VirtualSourceInfo"],
-        Tuple["StrPath", None],
+        Tuple[SourceId, None],
     ]
 
     # FIXME: rename parameter to artifact_id
     def get_artifact_dependency_infos(
         self, artifact_id: ArtifactId, sources: Iterable[StrPath]
     ) -> list[_DependencyInfo]:
-        return list(self._iter_artifact_dependency_infos(artifact_id, sources))
+        to_source_id = self.to_source_id
+        dependency_infos: list[BuildState._DependencyInfo] = []
+        known_source_ids = set()
 
-    def _iter_artifact_dependency_infos(
-        self, artifact_id: ArtifactId, sources: Iterable[StrPath],
-    ) -> Iterator[_DependencyInfo]:
-        """This iterates over all dependencies as file info objects."""
-        cur = self.build_db.execute(
-            """
-            SELECT source, source_mtime, source_size,
-                   source_checksum, is_dir
-            FROM artifacts
-            WHERE artifact = ?
-        """,
-            [artifact_id],
-        )
-
-        found = set()
-        for path, mtime, size, checksum, is_dir in cur:
-            if _is_packed_virtual_source_path(path):
-                vpath, alt = _unpack_virtual_source_path(path)
-                yield path, VirtualSourceInfo(vpath, alt, mtime, checksum)
+        for info in self._iter_artifact_source_infos(artifact_id):
+            if isinstance(info, VirtualSourceInfo):
+                packed_vpath = _pack_virtual_source_path(info.path, info.alt)
+                dependency_infos.append((packed_vpath, info))
             else:
-                file_info = FileInfo(
-                    self.env, path, mtime, size, checksum, bool(is_dir)
-                )
-                source_id = self.to_source_id(file_info.filename)
-                found.add(source_id)
-                yield source_id, file_info
+                assert isinstance(info, FileInfo)
+                source_id = to_source_id(info.filename)
+                known_source_ids.add(source_id)
+                dependency_infos.append((source_id, info))
 
         # In any case we also iterate over our direct sources, even if the
         # build state does not know about them yet.  This can be caused by
         # an initial build or a change in original configuration.
-        for source in sources:
-            source_id = self.to_source_id(source)
-            if source_id not in found:
-                yield source, None
+        dependency_infos.extend(
+            (source_id, None)
+            for source in sources
+            if (source_id := to_source_id(source)) not in known_source_ids
+        )
+
+        return dependency_infos
+
+    def _iter_artifact_source_infos(
+        self, artifact_id: ArtifactId
+    ) -> Iterator[_ArtifactSourceInfo]:
+        """Get saved artifact source information."""
+
+        for path, mtime, size, checksum, is_dir in self.build_db.execute(
+            """
+            SELECT source, source_mtime, source_size, source_checksum, is_dir
+            FROM artifacts
+            WHERE artifact = ?
+            """,
+            [artifact_id],
+        ):
+            if _is_packed_virtual_source_path(path):
+                vpath, alt = _unpack_virtual_source_path(path)
+                yield VirtualSourceInfo(vpath, alt, mtime, checksum)
+            else:
+                yield FileInfo(self.env, path, mtime, size, checksum, bool(is_dir))
 
     def write_source_info(self, info: SourceInfo) -> None:
         """Writes the source info into the database.  The source info is
@@ -483,16 +490,25 @@ class BuildState:
         if self._any_sources_are_dirty(sources):
             return False
 
-        # If we do have an already existing artifact, we need to check if
-        # any of the source files we depend on changed.
-        for _, info in self._iter_artifact_dependency_infos(artifact_id, sources):
-            # if we get a missing source info it means that we never
-            # saw this before.  This means we need to build it.
-            if info is None:
-                return False
+        # Read saved dependency info from build db
+        source_infos = list(self._iter_artifact_source_infos(artifact_id))
 
-            if info.is_changed(self):
-                return False
+        to_source_id = self.to_source_id
+        known_source_ids = {
+            to_source_id(info.filename)
+            for info in source_infos
+            if isinstance(info, FileInfo)
+        }
+
+        # If we are missing saved dependency info for any of our direct
+        # sources, that means we need to rebuild.
+        if any(to_source_id(source) not in known_source_ids for source in sources):
+            return False
+
+        # If any of the sources for which we have saved dependency info has
+        # changed, a rebuild is needed.
+        if any(info.is_changed(self) for info in source_infos):
+            return False
 
         return True
 
