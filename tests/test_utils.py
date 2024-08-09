@@ -283,6 +283,10 @@ def test_unique_everseen(seq, expected):
     assert tuple(unique_everseen(seq)) == expected
 
 
+def test_unique_everseen_with_key():
+    assert tuple(unique_everseen("AbaB", key=str.lower)) == ("A", "b")
+
+
 @contextmanager
 def _local_deprecated_call(match=None):
     """Like pytest.deprecated_call, but also check that all warnings

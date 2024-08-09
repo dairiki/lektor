@@ -843,14 +843,28 @@ def process_extra_flags(flags: dict[str, str] | Iterable[str] | None) -> dict[st
     return rv
 
 
+@overload
 def unique_everseen(seq: Iterable[_H]) -> Iterable[_H]:
+    ...
+
+
+@overload
+def unique_everseen(seq: Iterable[_T], key: Callable[[_T], _H]) -> Iterable[_T]:
+    ...
+
+
+def unique_everseen(
+    seq: Iterable[_T],
+    key: Callable[[_T], _H] | None = None,
+) -> Iterable[_T]:
     """Filter out duplicates from iterable."""
     # This is a less general version of more_itertools.unique_everseen.
     # Should we need more general functionality, consider using that instead.
     seen = set()
     for val in seq:
-        if val not in seen:
-            seen.add(val)
+        k = key(val) if key is not None else val
+        if k not in seen:
+            seen.add(k)
             yield val
 
 
