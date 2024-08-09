@@ -55,6 +55,7 @@ from lektor.sourceobj import SourceObject
 from lektor.sourceobj import VirtualSourceObject
 from lektor.sourcesearch import find_files
 from lektor.utils import deprecated
+from lektor.sourcesearch import FindFileResult
 from lektor.typing import ExcInfo
 from lektor.utils import process_extra_flags
 from lektor.utils import prune_file_and_folder
@@ -1233,7 +1234,7 @@ class Builder:
         lang: str | None = None,
         limit: int = 50,
         types: Collection[str] | None = None,
-    ) -> list[dict[str, str | list[dict[str, str]]]]:
+    ) -> list[FindFileResult]:
         """Returns a list of files that match the query.  This requires that
         the source info is up to date and is primarily used by the admin to
         show files that exist.

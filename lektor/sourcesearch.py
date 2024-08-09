@@ -1,23 +1,46 @@
+"""Query the source_info database for matching records.
+
+This is the implementation for the ``Builder.find_files`` method.
+
+It is used by the Admin API to support the find-page functionality in the Admin UI.
+
+"""
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Sized
+from itertools import chain
+from itertools import islice
+from operator import itemgetter
 from typing import Collection
-from typing import Dict
-from typing import Iterable
 from typing import Iterator
-from typing import Mapping
 from typing import TYPE_CHECKING
+from typing import TypedDict
 
 from lektor.constants import PRIMARY_ALT
+from lektor.utils import unique_everseen
 
 if TYPE_CHECKING:
-    from _typeshed import Unused
-
     from lektor.builder import Builder
 
 
-def _iter_parents(path: str) -> Iterator[str]:
+class Breadcrumb(TypedDict):
+    path: str
+    title: str
+    id: str                     # XXX: unused
+
+
+class FindFileResult(TypedDict):
+    # FIXME: more specific types
+    path: str
+    alt: str
+    title: str
+    type: str
+    lang: str
+    id: str  # XXX: unused
+    parents: list[Breadcrumb]
+
+
+def _iter_parents(path: str) -> Iterator[str]:  # XXX: more specific type? (DB path)
     path = path.strip("/")
     if path:
         pieces = path.split("/")
@@ -25,106 +48,55 @@ def _iter_parents(path: str) -> Iterator[str]:
             yield "/" + "/".join(pieces[:x])
 
 
-_Info = Dict[str, str]
-_Breadcrumb = Dict[str, str]
-
-
-def _find_info(infos: Iterable[_Info], alt: str, lang: str) -> _Info | None:
-    for info in infos:
-        if info["alt"] == alt and info["lang"] == lang:
-            return info
-    return None
-
-
 def _id_from_path(path: str) -> str:
-    try:
-        return path.strip("/").split("/")[-1]
-    except IndexError:
-        return ""
+    _, _, id_ = path.strip("/").rpartition("/")
+    return id_
 
 
-def _mapping_from_cursor(cur: sqlite3.Cursor) -> dict[str, list[_Info]]:
-    rv: dict[str, list[dict[str, str]]] = {}
-    for path, alt, lang, type, title in cur.fetchall():
-        rv.setdefault(path, []).append(
-            {
-                "id": _id_from_path(path),
-                "path": path,
-                "alt": alt,
-                "type": type,
-                "lang": lang,
-                "title": title,
-            }
-        )
-    return rv
+def _get_breadcrumb_data(
+    builder: Builder, paths: Collection[str], *, alt: str, lang: str
+) -> dict[str, list[Breadcrumb]]:
+    """Fetch information about parents."""
 
+    parent_paths = set(chain.from_iterable(_iter_parents(path) for path in paths))
 
-def _find_best_info(infos: Collection[_Info], alt: str, lang: str) -> _Info | None:
-    for _alt, _lang in [
-        (alt, lang),
-        (PRIMARY_ALT, lang),
-        (alt, "en"),
-        (PRIMARY_ALT, "en"),
-    ]:
-        rv = _find_info(infos, _alt, _lang)
-        if rv is not None:
-            return rv
-    return None
+    cur = builder.build_db.execute(
+        f"""
+        SELECT path, title
+        FROM source_info
+        WHERE path in ({_placeholders(parent_paths)})
+        ORDER BY
+            -- Sort by order of preference. We will keep only the first result
+            -- for each path.
+            CASE
+                WHEN lang = ? THEN 1  -- prefer requested lang
+                WHEN lang = ? THEN 2  -- fallback to default lang ("en")
+                ELSE 3
+            END,
+            CASE
+                WHEN alt = ? THEN 1  -- prefer requested alt
+                WHEN alt = ? THEN 2  -- fallback to PRIMARY_ALT
+                ELSE 3
+            END
+        """,
+        [*parent_paths, lang, "en", alt, PRIMARY_ALT],
+    )
+    rows = unique_everseen(cur, key=itemgetter(0))  # take first match for each path
+    titles_by_path = {str(path): str(title) for path, title in rows}
 
+    def title_for_path(path: str) -> str:
+        try:
+            return titles_by_path[path]
+        except KeyError:
+            return _id_from_path(path) or "(Index)"
 
-def _build_parent_path(
-    path: str, mapping: Mapping[str, Collection[_Info]], alt: str, lang: str
-) -> list[_Breadcrumb]:
-    rv = []
-    for parent in _iter_parents(path):
-        info = _find_best_info(mapping.get(parent) or [], alt, lang)
-        id = _id_from_path(parent)
-        if info is None or (title := info.get("title")) is None:
-            title = id or "(Index)"
-        rv.append({"id": id, "path": parent, "title": title})
-    return rv
-
-
-def _process_search_results(
-    builder: Unused, cur: sqlite3.Cursor, alt: str, lang: str, limit: int
-) -> list[dict[str, str | list[_Breadcrumb]]]:
-    matches = []
-    mapping = _mapping_from_cursor(cur)
-
-    files_needed = set()
-
-    for path, infos in mapping.items():
-        info = _find_best_info(infos, alt, lang)
-        if info is None:
-            continue
-
-        for parent in _iter_parents(path):
-            if parent not in mapping:
-                files_needed.add(parent)
-
-        matches.append(info)
-        if len(matches) == limit:
-            break
-
-    if files_needed:
-        cur.execute(
-            """
-            select path, alt, lang, type, title
-              from source_info
-             where path in (%s)
-        """
-            % ", ".join(["?"] * len(files_needed)),
-            list(files_needed),
-        )
-        mapping.update(_mapping_from_cursor(cur))
-
-    return [
-        {
-            **info,
-            "parents": _build_parent_path(info["path"], mapping, alt, lang),
-        }
-        for info in matches
-    ]
+    return {
+        path: [
+            {"path": ppath, "title": title_for_path(ppath), "id": _id_from_path(ppath)}
+            for ppath in _iter_parents(path)
+        ]
+        for path in paths
+    }
 
 
 def _placeholders(values: Sized) -> str:
@@ -137,40 +109,84 @@ def find_files(
     alt: str = PRIMARY_ALT,
     lang: str | None = None,
     limit: int = 50,
-    types: Iterable[str] | None = None,
-) -> list[dict[str, str | list[_Breadcrumb]]]:
-    if types is None:
-        types_ = {"page"}
-    else:
-        types_ = set(types)
+    types: Collection[str] | None = None,
+) -> list[FindFileResult]:
+    """Query the source_info database for records whose title or path contain the query
+    string.
 
+    Records for the specified ``alt`` as well as the default (``PRIMARY_ALT``) alt are
+    searched.  Titles are searched in the language specified by ``lang``, as well as the
+    default language (which is always ``"en"``).
+
+    For each db path, if multiple records match, only the "best match" is kept.
+
+    Results will be returned as a sequence of dicts containing the following keys:
+
+      - ``path`` - the db path to the matched record
+      - ``type`` - the SourceInfo.type (e.g. "page")
+      - ``alt`` - the alt of the record
+      - ``lang`` - the lang of the title
+      - ``title`` - the title of the source
+      - ``id`` - the id, or last component, of the matched record's path (*deprecated*)
+      - ``parents`` - breadcrumbs: a list of information about the ancestors of the record.
+        This is a list, ordered from root to leaves, containing a dict for each ancestor.
+        Each dict has the keys:
+          - ``path`` - db path of the ancestor
+          - ``title`` - display title of the ancestor
+          - ``id`` - the id, or last component, of the ancestor's path (*deprecated*)
+
+    """
+    if types is None:
+        types = {"page"}
+    else:
+        types = set(types)
     if lang is None:
         lang = "en"
-    languages = {"en", lang}
-
-    alts = {PRIMARY_ALT, alt}
 
     query = query.strip()
-    title_like = "%" + query + "%"
-    path_like = "/%" + query.rstrip("/") + "%"
+    title_query = "%" + query + "%"
+    path_query = "/%" + query.rstrip("/") + "%"
 
-    con = sqlite3.connect(builder.buildstate_database_filename, timeout=10)
-    try:
-        cur = con.cursor()
-        cur.execute(
-            f"""
-            select path, alt, lang, type, title
-              from source_info
-             where (title like ? or path like ?)
-               and lang in ({_placeholders(languages)})
-               and alt in ({_placeholders(alts)})
-               and type in ({_placeholders(types_)})
-            order by title
-            collate nocase
-             limit ?
-            """,
-            [title_like, path_like, *languages, *alts, *types_, limit * 2],
+    cur = builder.build_db.execute(
+        f"""
+        SELECT path, alt, lang, type, title
+        FROM source_info
+        WHERE (title like ? or path like ?)
+            AND (alt = ? OR alt = ?)
+            AND (lang = ? OR lang = ?)
+            AND type IN ({_placeholders(types)})
+        ORDER BY
+            -- Sort by order of preference. We will keep only the first result
+            -- for each path.
+            CASE
+                WHEN lang = ? THEN 1  -- prefer requested lang
+                ELSE 2
+            END,
+            CASE
+                WHEN alt = ? THEN 1  -- prefer requested alt
+                ELSE 2
+            END
+        """,
+        [title_query, path_query, alt, PRIMARY_ALT, lang, "en", *types, lang, alt],
+    )
+    rows = list(
+        islice(
+            unique_everseen(cur, key=itemgetter(0)),  # take first match for each path
+            limit,
         )
-        return _process_search_results(builder, cur, alt, lang, limit)
-    finally:
-        con.close()
+    )
+    paths = [path for path, *_ in rows]
+    breadcrumbs = _get_breadcrumb_data(builder, paths, alt=alt, lang=lang)
+
+    return [
+        {
+            "path": path,
+            "alt": _alt,
+            "title": title,
+            "type": type_,
+            "lang": _lang,
+            "id": _id_from_path(path),
+            "parents": breadcrumbs[path],
+        }
+        for path, _alt, _lang, type_, title in rows
+    ]
