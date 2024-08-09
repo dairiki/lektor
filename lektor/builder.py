@@ -55,9 +55,9 @@ from lektor.reporter import reporter
 from lektor.sourceobj import SourceObject
 from lektor.sourceobj import VirtualSourceObject
 from lektor.sourcesearch import find_files
-from lektor.utils import deprecated
 from lektor.sourcesearch import FindFileResult
 from lektor.typing import ExcInfo
+from lektor.utils import deprecated
 from lektor.utils import DeprecatedWarning
 from lektor.utils import process_extra_flags
 from lektor.utils import prune_file_and_folder
@@ -345,6 +345,7 @@ class BuildState:
             config_hash=config_hash,
         )
 
+    @deprecated(version="3.4.0")
     def artifact_exists(self, artifact_id: ArtifactId) -> bool:
         """Given an artifact name this checks if it was already produced."""
         dst_filename = self.get_destination_filename(artifact_id)
@@ -356,7 +357,7 @@ class BuildState:
         Tuple[SourceId, None],
     ]
 
-    # FIXME: rename parameter to artifact_id
+    @deprecated(version="3.4.0")
     def get_artifact_dependency_infos(
         self, artifact_id: ArtifactId, sources: Iterable[StrPath]
     ) -> list[_DependencyInfo]:
@@ -582,6 +583,7 @@ class BuildState:
         else:
             yield from filter(_is_unreferenced, existing_artifacts)
 
+    @deprecated(version="3.4.0")
     def iter_artifacts(self) -> Iterator[tuple[ArtifactId, FileInfo]]:
         """Iterates over all artifact and their file infos.."""
         for (artifact_id,) in self.build_db.execute(
@@ -875,6 +877,7 @@ class Artifact:
             self.artifact_id, self.sources, self.config_hash
         )
 
+    @deprecated(version="3.4.0")
     def get_dependency_infos(self) -> list[BuildState._DependencyInfo]:
         return self.build_state.get_artifact_dependency_infos(
             self.artifact_id, self.sources
