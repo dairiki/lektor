@@ -7,7 +7,21 @@ from urllib.parse import urlsplit
 import pytest
 from werkzeug import urls as werkzeug_urls
 
+from lektor.compat import _compat_batched
 from lektor.compat import _CompatURL
+from lektor.compat import itertools_batched
+
+
+@pytest.mark.parametrize(
+    "n, iterable, expected",
+    [
+        (3, (), []),
+        (3, "AbcDe", [("A", "b", "c"), ("D", "e")]),
+    ],
+)
+@pytest.mark.parametrize("batch", [_compat_batched, itertools_batched])
+def test_itertools_batched(iterable, n, expected, batch):
+    assert list(batch(iterable, n)) == expected
 
 
 @pytest.mark.parametrize(

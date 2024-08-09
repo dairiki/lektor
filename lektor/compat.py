@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import importlib.metadata
+import itertools
 import tempfile
 import urllib.parse
 from types import ModuleType
 from typing import Any
+from typing import Iterable
+from typing import Iterator
 from typing import Mapping
+from typing import TypeVar
 from urllib.parse import urlsplit
 from warnings import warn
 
@@ -14,7 +18,10 @@ from werkzeug.datastructures import MultiDict
 
 from lektor.utils import DeprecatedWarning
 
-__all__ = ["werkzeug_urls_URL"]
+__all__ = ["itertools_batched", "werkzeug_urls_URL"]
+
+
+_T = TypeVar("_T")
 
 
 _DEPRECATED_ATTRS: Mapping[str, ModuleType | type] = {
@@ -43,6 +50,22 @@ def __getattr__(name: str) -> object:
         stacklevel=2,
     )
     return value
+
+
+def _compat_batched(iterable: Iterable[_T], n: int) -> Iterator[tuple[_T, ...]]:
+    """Batch data from the iterable into tuples of length n.
+
+    The last batch may be shorter than n.
+    """
+    if n < 1:
+        raise ValueError("n must be at least one")
+    it = iter(iterable)
+    while batch := tuple(itertools.islice(it, n)):
+        yield batch
+
+
+# itertools.batched only exists in python >= 3.12
+itertools_batched = getattr(itertools, "batched", _compat_batched)
 
 
 class _CompatURL(urllib.parse.SplitResult):
