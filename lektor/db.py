@@ -543,9 +543,13 @@ class Siblings(VirtualSourceObject):  # pylint: disable=abstract-method
         return max(mtimes) if mtimes else None
 
     def get_checksum(self, path_cache):
-        sums = "|".join(i.filename_and_checksum for i in self._file_infos(path_cache))
-
-        return sums or None
+        h = hashlib.sha1()
+        for i in self._file_infos(path_cache):
+            h.update(i.filename.encode("utf-8"))
+            h.update(b"\0")
+            h.update(i.checksum.encode("utf-8"))
+            h.update(b"\0")
+        return h.hexdigest()
 
 
 def siblings_resolver(node, url_path):
