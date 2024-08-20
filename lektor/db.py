@@ -34,7 +34,7 @@ from lektor.assets import Asset
 from lektor.assets import Directory
 from lektor.assets import get_asset_root
 from lektor.constants import PRIMARY_ALT
-from lektor.context import Context
+from lektor.context import disable_dependency_recording
 from lektor.context import get_ctx
 from lektor.databags import Databags
 from lektor.datamodel import DataModel
@@ -720,7 +720,7 @@ class Page(Record):
         pagination_enabled = parent.datamodel.pagination_config.enabled
 
         # Don't track dependencies for this part.
-        with Context(pad=self.pad):
+        with disable_dependency_recording():
             if pagination_enabled:
                 pagination = parent.pagination
                 siblings = list(pagination.config.get_pagination_query(parent))

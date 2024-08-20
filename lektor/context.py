@@ -347,3 +347,39 @@ def ignore_url_unaffecting_dependencies(value: bool = True) -> Iterator[None]:
         yield
     finally:
         ctx._resolving_url = old
+
+
+@contextmanager
+def disable_dependency_recording() -> Iterator[None]:
+    """Disable dependency recording within context
+
+    We do this by pushing a new context onto the context stack.  The
+    new context proxies all access — except for dependency reporting —
+    back to the original context.
+
+    """
+    ctx = get_ctx()
+    if ctx is None:
+        yield
+        return
+
+    with DependencyIgnoringContextProxy(ctx):
+        yield
+
+
+class DependencyIgnoringContextProxy(Context):
+    # pylint: disable=super-init-not-called
+
+    __slots__ = ["_ctx"]
+
+    def __init__(self, ctx: Context):
+        self._ctx = ctx
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._ctx, name)
+
+    def record_dependency(self, filename: str, affects_url: bool | None = None) -> None:
+        pass
+
+    def record_virtual_dependency(self, virtual_source: VirtualSourceObject) -> None:
+        pass
