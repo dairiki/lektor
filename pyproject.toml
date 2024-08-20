@@ -170,7 +170,10 @@ enable = [
 ]
 
 [tool.mypy]
-files = ["$MYPY_CONFIG_FILE_DIR/lektor"]
+packages = [
+    "lektor",
+    "tests",
+]
 
 plugins = [
     "marshmallow_dataclass.mypy",
@@ -185,41 +188,56 @@ warn_redundant_casts = true
 strict = true
 #implicit_reexport = true
 
-# We have just started to add annotation.  For now, ignore all errors
-# by default. (This can be disabled on a per-package or per-module
-# basis in the overrides.)
+# By default we don't check for untyped defs or untyped calls
+disallow_untyped_defs = false
+disallow_untyped_calls = false
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+# These are not checked at all
+module = [
+    "lektor.cli",
+    "lektor.db",
+    "lektor.context",
+    "lektor.compat",
+    "lektor.databags",
+    "lektor.datamodel",
+    "lektor.devcli",
+    "lektor.editor",
+    "lektor.environment.*",
+    "lektor.markdown.*",
+    "lektor.metaformat",
+    "lektor.i18n",
+    "lektor.pluginsystem",
+    "lektor.reporter",
+    "lektor.sourcesearch",
+    "lektor.types.flow",
+    "lektor.types.multi",
+    "lektor.utils",
+    "lektor.videotools",
+    "tests.*",
+]
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-# Packages and modules we want to check
+# These modules are completely annotated, but use
+# modules that are not.
+module = [
+    "lektor.admin.*",
+    "lektor.devserver",
+    "lektor.imagetools.*",
+]
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+# These modules are "fully typechecked"
 module = [
     "lektor.assets",
     "lektor.constants",
-    "lektor.devserver",
-    "lektor.packages",
-    "lektor.admin.*",
-    "lektor.imagetools.*",
-    "test_packages",
+    "lektor.typing",
+    "tests.test_packages",
 ]
-ignore_errors = false
+disallow_untyped_defs = true
+disallow_untyped_calls = true
+warn_return_any = true
 
-[[tool.mypy.overrides]]
-module = [
-    "lektor.packages",
-]
-disallow_untyped_defs = false
-
-[[tool.mypy.overrides]]
-module = [
-    "lektor.admin.*",
-    "lektor.devserver",
-    "lektor.imagetools.*",
-    "lektor.packages",
-]
-disallow_untyped_calls = false
-
-[[tool.mypy.overrides]]
-module = [
-    "lektor.admin.*",
-]
-warn_return_any = false
