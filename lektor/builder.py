@@ -91,6 +91,11 @@ PackedVirtualSourcePath = NewType("PackedVirtualSourcePath", str)
 
 _SourceObj = TypeVar("_SourceObj", bound=SourceObject)
 
+# Maximum number of place-holders allowed in an SQLite statement.
+# The default values is 999 for sqlite < 3.32 or 32766 for sqlite >= 3.32
+# There seems to be no easy way to determine the actual value at runtime.
+# See https://www.sqlite.org/limits.html#max_variable_number
+SQLITE_MAX_VARIABLE_NUMBER = 999  # Default SQLITE_MAX_VARIABLE_NUMBER.
 
 _BUILDSTATE_SCHEMA = """
     CREATE TABLE IF NOT EXISTS artifacts (
@@ -442,7 +447,6 @@ class BuildState:
 
     def prune_source_infos(self) -> None:
         """Remove all source infos of files that no longer exist."""
-        MAX_VARS = 999  # Default SQLITE_MAX_VARIABLE_NUMBER.
 
         root_path = Path(self.env.root_path)
         to_clean = (
@@ -453,7 +457,7 @@ class BuildState:
             if not root_path.joinpath(source).exists()
         )
         with self.build_db as con:
-            for batch in batched(to_clean, MAX_VARS):
+            for batch in batched(to_clean, SQLITE_MAX_VARIABLE_NUMBER):
                 con.execute(
                     f"DELETE FROM source_info WHERE SOURCE in ({_placeholders(batch)})",
                     batch,
