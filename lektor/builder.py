@@ -59,6 +59,11 @@ from lektor.typing import ExcInfo
 from lektor.utils import process_extra_flags
 from lektor.utils import prune_file_and_folder
 
+if sys.version_info >= (3, 9):
+    from importlib import resources
+else:
+    import importlib_resources as resources
+
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
     from typing import TypeGuard
@@ -97,44 +102,7 @@ _SourceObj = TypeVar("_SourceObj", bound=SourceObject)
 # See https://www.sqlite.org/limits.html#max_variable_number
 SQLITE_MAX_VARIABLE_NUMBER = 999  # Default SQLITE_MAX_VARIABLE_NUMBER.
 
-_BUILDSTATE_SCHEMA = """
-    CREATE TABLE IF NOT EXISTS artifacts (
-        artifact TEXT,
-        source TEXT,
-        source_mtime INTEGER,
-        source_size INTEGER,
-        source_checksum TEXT,
-        is_dir INTEGER,
-        is_primary_source INTEGER,
-        PRIMARY KEY (artifact, source)
-    ) WITHOUT ROWID;
-
-    CREATE INDEX IF NOT EXISTS artifacts_source ON artifacts (
-        source
-    );
-
-    CREATE TABLE IF NOT EXISTS artifact_config_hashes (
-        artifact TEXT,
-        config_hash TEXT,
-        PRIMARY KEY (artifact)
-    ) WITHOUT ROWID;
-
-    CREATE TABLE IF NOT EXISTS dirty_sources (
-        source TEXT,
-        PRIMARY KEY (source)
-    ) WITHOUT ROWID;
-
-    CREATE TABLE IF NOT EXISTS source_info (
-        path TEXT,
-        alt TEXT,
-        lang TEXT,
-        type TEXT,
-        source TEXT,
-        title TEXT,
-        PRIMARY KEY (path, alt, lang)
-    ) WITHOUT ROWID;
-"""
-
+_BUILDSTATE_SCHEMA = (resources.files("lektor") / "buildstate_schema.sql").read_text()
 if sqlite3.sqlite_version_info < (3, 8, 2):
     # old versions of libsqlite3 do not support WITHOUT ROWID
     _BUILDSTATE_SCHEMA = re.sub(r"(?i)\s+WITHOUT ROWID\b", "", _BUILDSTATE_SCHEMA)
