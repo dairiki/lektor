@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from contextlib import suppress
 from dataclasses import dataclass
 from dataclasses import field
+from functools import cached_property
 from itertools import chain
 from pathlib import Path
 from types import TracebackType
@@ -599,18 +600,18 @@ class BuildState:
         self.build_db.execute("VACUUM")
 
 
-def _describe_fs_path_for_checksum(path: StrPath) -> bytes:
+def _describe_fs_path_for_checksum(path: Path) -> bytes:
     """Given a file system path this returns a basic description of what
     this is.  This is used for checksum hashing on directories.
     """
     # This is not entirely correct as it does not detect changes for
     # contents from alternatives.  However for the moment it's good
     # enough.
-    if os.path.isfile(path):
+    if path.is_file():
         return b"\x01"
-    if os.path.isfile(os.path.join(path, "contents.lr")):
+    if path.joinpath("contents.lr").is_file():
         return b"\x02"
-    if os.path.isdir(path):
+    if path.is_dir():
         return b"\x03"
     return b"\x00"
 
@@ -634,101 +635,86 @@ class FileInfo(_ArtifactSourceInfo):
     def __init__(
         self,
         env: Environment,
-        filename: StrPath,
+        path: StrPath,
         mtime: int | None = None,
         size: int | None = None,
         checksum: str | None = None,
         is_dir: bool | None = None,
     ):
         self.env = env
-        self.filename = filename
+        self.path = Path(path)
+        cache = self.__dict__
         if mtime is not None and size is not None and is_dir is not None:
-            self._stat = (mtime, size, is_dir)
-        else:
-            self._stat = None
-        self._checksum = checksum
+            cache["_stat"] = mtime, size, is_dir
+        if checksum is not None:
+            cache["checksum"] = checksum
 
-    _stat: tuple[int, int, bool] | None
+    @property
+    def filename(self) -> str:
+        return os.fspath(self.path)
 
-    def _get_stat(self) -> tuple[int, int, bool]:
-        rv = self._stat
-        if rv is not None:
-            return rv
-
+    @cached_property
+    def _stat(self) -> tuple[int, int, bool]:
         try:
-            st = os.stat(self.filename)
+            st = self.path.stat()
             mtime = int(st.st_mtime)
-            if stat.S_ISDIR(st.st_mode):
-                size = len(os.listdir(self.filename))
-                is_dir = True
+            is_dir = stat.S_ISDIR(st.st_mode)
+            if is_dir:
+                size = sum(1 for _ in self.path.iterdir())
             else:
-                size = int(st.st_size)
-                is_dir = False
-            rv = mtime, size, is_dir
+                size = st.st_size
+            return mtime, size, is_dir
         except OSError:
-            rv = 0, -1, False
-        self._stat = rv
-        return rv
+            return 0, -1, False
 
     @property
     def mtime(self) -> int:
         """The timestamp of the last modification."""
-        return self._get_stat()[0]
+        return self._stat[0]
 
     @property
     def size(self) -> int:
         """The size of the file in bytes.  If the file is actually a
         dictionary then the size is actually the number of files in it.
         """
-        return self._get_stat()[1]
+        return self._stat[1]
 
     @property
     def is_dir(self) -> bool:
         """Is this a directory?"""
-        return self._get_stat()[2]
+        return self._stat[2]
 
     @property
     def exists(self) -> bool:
         return self.size >= 0
 
-    @property
+    @cached_property
     def checksum(self) -> str:
         """The checksum of the file or directory."""
-        rv = self._checksum
-        if rv is not None:
-            return rv
-
-        try:
-            h = hashlib.sha1()
-            if os.path.isdir(self.filename):
+        h = hashlib.sha1()
+        with suppress(OSError):
+            if self.path.is_dir():
                 h.update(b"DIR\x00")
-                for filename in sorted(os.listdir(self.filename)):
-                    if self.env.is_uninteresting_source_name(filename):
+                for path in sorted(self.path.iterdir()):
+                    if self.env.is_uninteresting_source_name(path.name):
                         continue
-                    h.update(filename.encode("utf-8"))
-                    h.update(
-                        _describe_fs_path_for_checksum(
-                            os.path.join(self.filename, filename)
-                        )
-                    )
+                    h.update(path.name.encode("utf-8"))
+                    h.update(_describe_fs_path_for_checksum(path))
                     h.update(b"\x00")
             else:
-                with open(self.filename, "rb") as f:
-                    while 1:
-                        chunk = f.read(16 * 1024)
-                        if not chunk:
-                            break
+                with self.path.open("rb") as f:
+                    while chunk := f.read(16 * 1024):
                         h.update(chunk)
-            checksum = h.hexdigest()
-        except OSError:
-            checksum = "0" * 40
-        self._checksum = checksum
-        return checksum
+
+            return h.hexdigest()
+
+        return "0" * 40
 
     @property
+    @deprecated(version="3.4.0")
     def filename_and_checksum(self) -> str:
         """Like 'filename:checksum'."""
-        return f"{self.filename}:{self.checksum}"
+        return f"{self.path}:{self.checksum}"
 
     def unchanged(self, other: FileInfo) -> bool:
         """Given another file info checks if the are similar enough to
@@ -738,7 +724,7 @@ class FileInfo(_ArtifactSourceInfo):
             # XXX: should return NotImplemented?
             raise TypeError("'other' must be a FileInfo, not %r" % other)
 
-        if self.mtime != other.mtime or self.size != other.size:
+        if self._stat != other._stat:
             return False
         # If mtime and size match, we skip the checksum comparison which
         # might require a file read which we do not want in those cases.
@@ -748,7 +734,7 @@ class FileInfo(_ArtifactSourceInfo):
         return self.checksum == other.checksum
 
     def is_changed(self, build_state: BuildState) -> bool:
-        other = build_state.get_file_info(self.filename)
+        other = build_state.get_file_info(self.path)
         return not self.unchanged(other)
 
 
@@ -1158,6 +1144,11 @@ class PathCache:
         self.file_info_cache = {}
         self.source_id_cache = {}
         self.env = env
+        self._root_path = Path(env.root_path).resolve()
+
+    @deprecated("renamed to to_source_id", version="3.4.0")
+    def to_source_filename(self, filename: StrPath) -> SourceId:
+        return self.to_source_id(filename)
 
     def to_source_id(self, filename: StrPath) -> SourceId:
         """Given a path somewhere below the environment this will return the
@@ -1165,27 +1156,23 @@ class PathCache:
         path, this identifier is also platform independent.
         """
         key = filename
-        rv = self.source_id_cache.get(key)
-        if rv is not None:
-            return rv
-        folder = os.path.abspath(self.env.root_path)
-        filename = os.path.normpath(os.path.join(folder, filename))
-        if filename.startswith(folder):
-            filename = filename[len(folder) :].lstrip(os.path.sep)
-            if os.path.altsep:
-                filename = filename.lstrip(os.path.altsep)
-        else:
-            raise ValueError(
-                "The given value (%r) is not below the "
-                "source folder (%r)" % (filename, self.env.root_path)
-            )
-        source_id = SourceId(filename.replace(os.path.sep, "/"))
-        self.source_id_cache[key] = source_id
+        source_id = self.source_id_cache.get(key)
+        if source_id is None:
+            source_id = self._to_source_id(filename)
+            self.source_id_cache[key] = source_id
         return source_id
 
-    @deprecated("renamed to to_source_id", version="3.4.0")
-    def to_source_filename(self, filename: StrPath) -> SourceId:
-        return self.to_source_id(filename)
+    def _to_source_id(self, filename: StrPath) -> SourceId:
+        root_path = self._root_path
+        path = root_path.joinpath(filename).resolve()
+        try:
+            return SourceId(path.relative_to(root_path).as_posix())
+        except ValueError as exc:
+            message = (
+                f"The given value {filename!r} is not below the "
+                f"source folder {self.env.root_path!r}"
+            )
+            raise ValueError(message) from exc
 
     def get_file_info(self, filename: StrPath) -> FileInfo:
         """Returns the file info for a given file.  This will be cached
@@ -1200,11 +1187,11 @@ class PathCache:
 
         The filename given can be a source filename.
         """
-        fn = os.path.join(self.env.root_path, filename)
-        rv = self.file_info_cache.get(fn)
-        if rv is None:
-            self.file_info_cache[fn] = rv = FileInfo(self.env, fn)
-        return rv
+        path = self._root_path / filename
+        file_info = self.file_info_cache.get(path)
+        if file_info is None:
+            self.file_info_cache[path] = file_info = FileInfo(self.env, path)
+        return file_info
 
 
 class Builder:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os.path
 from pathlib import Path
 
 import pytest
@@ -7,8 +8,8 @@ import pytest
 from lektor.builder import _is_packed_virtual_source_path
 from lektor.builder import _pack_virtual_source_path
 from lektor.builder import _unpack_virtual_source_path
-from lektor.builder import Builder
 from lektor.builder import FileInfo
+from lektor.builder import PathCache
 from lektor.project import Project
 from lektor.reporter import NullReporter
 
@@ -393,34 +394,51 @@ def test_second_build_all_builds_nothing(scratch_builder, scratch_project_data):
         scratch_builder.build_all()
 
 
+def test_BuildState_to_source_id(env, builder):
+    build_state = builder.new_build_state()
+    assert build_state.to_source_id("blog/.././foo.txt") == "foo.txt"
+
+
+@pytest.fixture
+def path_cache(env):
+    return PathCache(env)
+
+
 @pytest.mark.parametrize(
-    "param",
+    "path, expected",
     [
-        "project",
-        pytest.param(
-            "symlinked-project",
-            marks=pytest.mark.xfail(
-                reason="FIXME: PathCache.to_source_id does not cope with symlinks"
-            ),
-        ),
+        ("filename", "filename"),
+        ("a/../b", "b"),
     ],
 )
-def test_BuildState_to_source_id(param, data_path, tmp_path):
+def test_PathCache_to_source_id(path_cache, env, path, expected):
+    root_path = Path(env.root_path)
+    assert path_cache.to_source_id(root_path / path) == expected
+    assert path_cache.to_source_id(os.fspath(root_path / path)) == expected
+    assert path_cache.to_source_id(path) == expected
+    assert path_cache.to_source_id(Path(path)) == expected
+
+
+def test_PathCache_to_source_id_fails_for_paths_outside_tree(
+    path_cache, tmp_path
+):
+    with pytest.raises(ValueError, match="is not below the source folder"):
+        path_cache.to_source_id(tmp_path / "filename")
+
+
+def test_PathCache_to_source_id_with_symlinked_project(data_path, tmp_path):
     demo_project = data_path / "demo-project"
-    if "symlink" in param:
-        tree = tmp_path / "tree"
-        try:
-            tree.symlink_to(demo_project, target_is_directory=True)
-        except OSError:
-            pytest.skip("symlinks unsupported?")
-    else:
-        tree = demo_project
+    tree = tmp_path / "tree"
+    try:
+        tree.symlink_to(demo_project, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unsupported?")
+
     project = Project.from_path(tree)
     assert project is not None
-    env = project.make_env(load_plugins=False)
-    build_state = Builder(env.new_pad(), tmp_path / "output").new_build_state()
+    path_cache = PathCache(project.make_env(load_plugins=False))
 
-    assert build_state.to_source_id(str(demo_project / "filename")) == "filename"
+    assert path_cache.to_source_id(tree / "filename") == "filename"
 
 
 ################################################################
@@ -448,6 +466,71 @@ def test_FileInfo_unchanged(env, tmp_path):
     assert file_info2.size != 3
 
     assert not file_info.unchanged(file_info2)
+
+
+@pytest.mark.parametrize(
+    "info1, info2, expected",
+    [
+        ((1, 1, "sum", True), (1, 1, "sum", True), True),
+        ((1, 1, "sum", True), (1, 1, "sum", False), False),
+        ((1, 1, "sum", True), (1, 2, "sum", True), False),
+        ((1, 1, "sum", True), (2, 1, "sum", True), False),
+        ((1, 1, "sum", True), (1, 1, "XXX", True), False),
+        # check that checksum is not consulted for non-directories
+        ((1, 1, "sum", False), (1, 1, "XXX", False), True),
+    ],
+)
+def test_FileInfo_unchanged_cases(env, tmp_path, info1, info2, expected):
+    file_info1 = FileInfo(env, tmp_path, *info1)
+    file_info2 = FileInfo(env, tmp_path, *info2)
+    assert file_info1.unchanged(file_info2) is expected
+    assert file_info2.unchanged(file_info1) is expected
+
+
+def test_FileInfo_checksum_ignores_uninteresting_files(env, tmp_path):
+    checksum1 = FileInfo(env, tmp_path).checksum
+
+    tmp_path.joinpath("file.txt").touch()
+
+    checksum2 = FileInfo(env, tmp_path).checksum
+    assert checksum2 != checksum1
+
+    tmp_path.joinpath(".hidden.txt").touch()
+
+    checksum3 = FileInfo(env, tmp_path).checksum
+    assert checksum3 == checksum2
+
+
+def test_FileInfo_checksum_notices_record_dirs(env, tmp_path):
+    checksum1 = FileInfo(env, tmp_path).checksum
+
+    page_dir = tmp_path.joinpath("page")
+    page_dir.mkdir()
+
+    checksum2 = FileInfo(env, tmp_path).checksum
+    assert checksum2 != checksum1
+
+    page_dir.joinpath("contents.lr").touch()
+    checksum3 = FileInfo(env, tmp_path).checksum
+    assert checksum3 != checksum2
+
+
+def test_FileInfo_precached_values(env, tmp_path):
+    file_info = FileInfo(
+        env, tmp_path, mtime=1, size=2, checksum="cheese", is_dir=False
+    )
+    assert file_info.checksum == "cheese"
+    assert file_info.mtime == 1
+    assert file_info.size == 2
+    assert not file_info.is_dir
+
+    assert FileInfo(env, tmp_path).is_dir  # sanity check
+
+
+def test_FileInfo_raises_type_error(env, tmp_path):
+    file_info = FileInfo(env, tmp_path)
+    with pytest.raises(TypeError, match="must be a FileInfo"):
+        file_info.unchanged(tmp_path)
 
 
 @pytest.mark.parametrize(
