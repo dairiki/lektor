@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import codecs
+import io
 import json
 import os
 import posixpath
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -21,13 +23,16 @@ from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 from functools import wraps
+from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
 from typing import Callable
 from typing import ClassVar
 from typing import Generic
+from typing import IO
 from typing import Iterable
 from typing import Iterator
+from typing import Literal
 from typing import Mapping
 from typing import overload
 from typing import Protocol
@@ -597,28 +602,80 @@ def get_dependent_url(url_path: str, suffix: str, ext: str | None = None) -> str
     return str(path)
 
 
+# These are the only modes we really support
+_AtomicOpenTextMode = Literal["w", "wt", "tw", "r", "rt", "tr"]
+_AtomicOpenBinaryModeWriting = Literal["wb", "bw"]
+_AtomicOpenBinaryModeReading = Literal["rb", "br"]
+_AtomicOpenMode = Union[
+    _AtomicOpenTextMode, _AtomicOpenBinaryModeWriting, _AtomicOpenBinaryModeReading
+]
+
+
+@overload
 @contextmanager
-def atomic_open(filename, mode="r", encoding=None):
-    if "r" not in mode:
-        fd, tmp_filename = tempfile.mkstemp(
-            dir=os.path.dirname(filename), prefix=".__atomic-write"
-        )
-        os.chmod(tmp_filename, 0o644)
-        f = os.fdopen(fd, mode)
-    else:
-        f = open(filename, mode=mode, encoding=encoding)
-        tmp_filename = None
+def atomic_open(
+    filename: StrPath,
+    mode: _AtomicOpenTextMode = "r",
+    encoding: str | None = None,
+) -> Iterator[io.TextIOWrapper]:
+    ...
+
+
+@overload
+@contextmanager
+def atomic_open(
+    filename: StrPath,
+    mode: _AtomicOpenBinaryModeWriting,
+    encoding: None = None,
+) -> Iterator[io.BufferedWriter]:
+    ...
+
+
+@overload
+@contextmanager
+def atomic_open(
+    filename: StrPath,
+    mode: _AtomicOpenBinaryModeReading,
+    encoding: None = None,
+) -> Iterator[io.BufferedReader]:
+    ...
+
+
+@contextmanager
+def atomic_open(
+    filename: StrPath, mode: _AtomicOpenMode = "r", encoding: str | None = None
+) -> Iterator[IO[Any]]:
+    if any(c in mode for c in "ax+"):
+        raise ValueError(f"unsupported open mode: {mode}")
+
+    if "r" in mode:
+        with open(filename, mode=mode, encoding=encoding) as fp:
+            yield fp
+        return
+
+    fd, tmp_filename = tempfile.mkstemp(
+        dir=Path(filename).parent, prefix=".__atomic-write"
+    )
+    os.chmod(fd, _get_default_file_mode())
     try:
-        with f:
-            yield f
+        with open(fd, mode, encoding=encoding) as fp:
+            yield fp
+        os.replace(tmp_filename, filename)
     except Exception:
-        if tmp_filename is not None:
-            with suppress(OSError):
-                os.remove(tmp_filename)
+        with suppress(OSError):
+            os.remove(tmp_filename)
         raise
 
-    if tmp_filename is not None:
-        os.replace(tmp_filename, filename)
+
+def _get_default_file_mode(mode: int = 0o666) -> int:
+    """Get the default file mode for opened files(0x666 & ~umask)."""
+    # NB: It seems impossible to read the umask of the current process in a thread-safe
+    # way.  (There is only os.umask(new_umask) which involves briefly setting a new
+    # umask.)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fn = os.path.join(tmpdir, "mode-test")
+        fd = os.open(fn, os.O_CREAT | os.O_EXCL, mode)
+        return stat.S_IMODE(os.stat(fd).st_mode)
 
 
 def portable_popen(cmd, *args, **kwargs):
