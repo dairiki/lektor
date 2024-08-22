@@ -8,34 +8,34 @@ import sqlite3
 import stat
 import sys
 import tempfile
+import threading
+import weakref
 from collections import deque
 from collections import namedtuple
 from collections.abc import Sized
 from contextlib import AbstractContextManager
 from contextlib import contextmanager
 from contextlib import suppress
-from contextvars import ContextVar
 from dataclasses import dataclass
+from dataclasses import field
 from itertools import chain
 from pathlib import Path
 from types import TracebackType
 from typing import Any
 from typing import Callable
 from typing import cast
-from typing import ClassVar
 from typing import Collection
+from typing import Generic
 from typing import IO
 from typing import Iterable
 from typing import Iterator
 from typing import Mapping
-from typing import MutableMapping
 from typing import NewType
 from typing import Sequence
 from typing import Tuple
 from typing import TYPE_CHECKING
 from typing import TypeVar
 from typing import Union
-from weakref import WeakKeyDictionary
 
 import click
 
@@ -58,11 +58,6 @@ from lektor.utils import deprecated
 from lektor.typing import ExcInfo
 from lektor.utils import process_extra_flags
 from lektor.utils import prune_file_and_folder
-
-if sys.version_info >= (3, 11):
-    from typing import Self
-else:
-    from typing_extensions import Self
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -143,6 +138,30 @@ if sqlite3.sqlite_version_info < (3, 8, 2):
 _SqlParameters: TypeAlias = Union[Sequence[Any], Mapping[str, Any]]
 
 
+_T = TypeVar("_T")
+
+
+class ThreadLocal(threading.local, Generic[_T]):
+    """Helper to store a thread-local Connection.
+
+    This calls the finalizer when the thread exit.
+    It works with value types that are not weakrefable (like sqlite3.Connection).
+    """
+
+    value: _T
+    sentinel: set[None]
+
+    def get(self) -> _T | None:
+        if hasattr(self, "value"):
+            return self.value
+        return None
+
+    def set(self, value: _T, finalizer: Callable[[], None]) -> None:
+        self.value = value
+        self.sentinel = set()  # simple weakrefable object
+        weakref.finalize(self.sentinel, finalizer)
+
+
 @dataclass(frozen=True)
 class SqliteConnectionPool(AbstractContextManager[sqlite3.Connection, None]):
     """Maintain a pool of connections, one per thread, to a sqlite3 database.
@@ -159,19 +178,9 @@ class SqliteConnectionPool(AbstractContextManager[sqlite3.Connection, None]):
     database: StrOrBytesPath
     timeout: float = 10.0
 
-    _connection_map: ClassVar[
-        ContextVar[MutableMapping[Self, sqlite3.Connection]]
-    ] = ContextVar("SqliteConnectionPool_connection_map")
-
-    def _get_connection_map(self) -> MutableMapping[Self, sqlite3.Connection]:
-        """Get or create context-local WeakKeyDictionary used to store connections."""
-        try:
-            return self._connection_map.get()
-        except LookupError:
-            connection_map: MutableMapping[Self, sqlite3.Connection]
-            connection_map = WeakKeyDictionary()
-            self._connection_map.set(connection_map)
-            return connection_map
+    _con: ThreadLocal[sqlite3.Connection] = field(
+        init=False, default_factory=ThreadLocal
+    )
 
     def connect(self) -> sqlite3.Connection:
         """Get cached (thread-local) database connection.
@@ -180,11 +189,10 @@ class SqliteConnectionPool(AbstractContextManager[sqlite3.Connection, None]):
         current thread.
 
         """
-        connection_map = self._get_connection_map()
-        con = connection_map.get(self)
+        con = self._con.get()
         if con is None or not self._connection_appears_usable(con):
             con = self._connect()
-            connection_map[self] = con
+            self._con.set(con, con.close)
         return con
 
     def _connect(self) -> sqlite3.Connection:
@@ -219,12 +227,10 @@ class SqliteConnectionPool(AbstractContextManager[sqlite3.Connection, None]):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        try:
-            connection = self._get_connection_map()[self]
-        except LookupError as ex:
-            raise ValueError("__exit__ called before __enter__") from ex
-
-        connection.__exit__(exc_type, exc_value, traceback)
+        con = self._con.get()
+        if con is None:
+            raise ValueError("__exit__ called before __enter__")
+        con.__exit__(exc_type, exc_value, traceback)
 
     def execute(self, sql: str, parameters: _SqlParameters = (), /) -> sqlite3.Cursor:
         """Create a new Cursor object and call execute() on it.
