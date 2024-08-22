@@ -5,6 +5,8 @@ import time
 import traceback
 import warnings
 from contextlib import contextmanager
+from traceback import TracebackException
+from typing import Any
 from typing import Callable
 from typing import Iterable
 from typing import Iterator
@@ -44,6 +46,21 @@ if TYPE_CHECKING:
     from lektor.environment import Environment
     from lektor.sourceobj import SourceObject
     from lektor.typing import ExcInfo
+
+
+class ArtifactBuildFuncExceptionWarning(UserWarning):
+    """Warning issued when the build_func for an artifact raise an exception."""
+
+    def __init__(
+        self,
+        *args: Any,
+        tb_exc: TracebackException,
+        artifact: Artifact | None = None,
+    ):
+        super().__init__(*args)
+        self.tb_exc = tb_exc
+        self.artifact = artifact
+
 
 BuildChangeCallback = Callable[["Artifact"], None]
 
@@ -192,7 +209,29 @@ class Reporter:
         pass
 
     def report_failure(self, artifact: Artifact, exc_info: ExcInfo) -> None:
-        pass
+        # In general, we always want to report exceptions.  Otherwise, if
+        # an exception is raised by an artifact build_func in a unit test,
+        # we get no indication.
+        tb_exc = TracebackException(*exc_info, limit=-6, compact=True)
+
+        message = "".join(tb_exc.format_exception_only())
+        loc = []
+        if self.current_artifact:
+            loc.append(f"while building {self.current_artifact.artifact_id!r}")
+        if self.current_source:
+            loc.append(f"for {self.current_source!r}")
+        if loc:
+            message = f"{message.rstrip()}, {' '.join(loc)}\n"
+
+        lines = (message, *tb_exc.format(chain=True))
+        full_message = "| ".join(lines).rstrip()
+
+        warnings.warn(
+            ArtifactBuildFuncExceptionWarning(
+                full_message, tb_exc=tb_exc, artifact=self.current_artifact
+            ),
+            stacklevel=2,
+        )
 
     def report_build_all_failure(self, failures: int) -> None:
         pass

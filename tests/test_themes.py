@@ -219,6 +219,11 @@ class BuiltAssetsReporter(Reporter):
             self.built_assets.append(source_obj)
 
 
+@pytest.mark.filterwarnings(
+    # theme_project_tmpdir is missing the dummy.xml and icc-profile-test.html
+    # templates used by content copied from demo-site
+    r"ignore:.*\bTemplateNotFound\b:lektor.reporter.ArtifactBuildFuncExceptionWarning"
+)
 def test_build_omits_shadowed_assets(theme_builder):
     with BuiltAssetsReporter() as reporter:
         theme_builder.build_all()
