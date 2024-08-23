@@ -12,7 +12,7 @@ import PIL.Image
 
 __all__ = ["ExifTags", "Transpose", "UnidentifiedImageError"]
 
-PILLOW_VERSION_INFO = tuple(map(int, PIL.__version__.split(".")))
+PILLOW_VERSION_INFO = tuple(map(int, PIL.__version__.split(".")[:3]))
 
 if PILLOW_VERSION_INFO >= (9, 4):
     ExifTags: ModuleType | SimpleNamespace = PIL.ExifTags
