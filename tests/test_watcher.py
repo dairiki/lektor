@@ -10,14 +10,53 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 from typing import Generator
+from typing import TYPE_CHECKING
+from typing import TypeVar
+from unittest import mock
 
 import pytest
-from watchfiles import Change
+from watchfiles import Change as _Change
 
 from lektor.environment import Environment
 from lektor.project import Project
 from lektor.watcher import watch_project
+from lektor.watcher import WATCHFILES_IS_BORKED
 from lektor.watcher import WatchFilter
+
+if sys.version_info >= (3, 10):
+    from typing import ParamSpec
+else:
+    from typing_extensions import ParamSpec
+
+Change: type[_Change] = _Change
+if WATCHFILES_IS_BORKED:
+    Change = mock.Mock(spec=_Change, name="Change")
+
+if TYPE_CHECKING:
+    from _typeshed import Unused
+
+
+_T = TypeVar("_T")
+_P = ParamSpec("_P")
+
+
+xfail_if_watchfiles_borked = pytest.mark.xfail(
+    WATCHFILES_IS_BORKED, reason="watchfiles broken on this platform"
+)
+
+
+def slow_if_watchfiles_borked(test: Callable[_P, _T]) -> Callable[_P, _T]:
+    if WATCHFILES_IS_BORKED:
+        return pytest.mark.slowtest(test)
+    return test
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(
+    session: Unused, config: Unused, items: list[pytest.Item]
+) -> None:
+    for item in items:
+        print(f"{item.name}: {item.own_markers!r}")
 
 
 RunInThread = Callable[[Callable[[], None]], None]
@@ -132,12 +171,16 @@ def test_watcher_test(watcher_test: WatcherTest) -> None:
     assert not change_seen
 
 
+@xfail_if_watchfiles_borked
+@slow_if_watchfiles_borked
 def test_sees_created_file(watcher_test: WatcherTest, watched_path: Path) -> None:
     with watcher_test() as change_seen:
         Path(watched_path, "created").touch()
     assert change_seen
 
 
+@xfail_if_watchfiles_borked
+@slow_if_watchfiles_borked
 def test_sees_deleted_file(watcher_test: WatcherTest, watched_path: Path) -> None:
     deleted_path = watched_path / "deleted"
     deleted_path.touch()
@@ -147,6 +190,8 @@ def test_sees_deleted_file(watcher_test: WatcherTest, watched_path: Path) -> Non
     assert change_seen
 
 
+@xfail_if_watchfiles_borked
+@slow_if_watchfiles_borked
 def test_sees_modified_file(watcher_test: WatcherTest, watched_path: Path) -> None:
     modified_path = watched_path / "modified"
     modified_path.touch()
@@ -157,6 +202,8 @@ def test_sees_modified_file(watcher_test: WatcherTest, watched_path: Path) -> No
     assert change_seen
 
 
+@xfail_if_watchfiles_borked
+@slow_if_watchfiles_borked
 def test_sees_file_moved_in(
     watcher_test: WatcherTest, watched_path: Path, tmp_path: Path
 ) -> None:
@@ -169,6 +216,8 @@ def test_sees_file_moved_in(
     assert change_seen
 
 
+@xfail_if_watchfiles_borked
+@slow_if_watchfiles_borked
 def test_sees_file_moved_out(
     watcher_test: WatcherTest, watched_path: Path, tmp_path: Path
 ) -> None:
@@ -181,6 +230,8 @@ def test_sees_file_moved_out(
     assert change_seen
 
 
+@xfail_if_watchfiles_borked
+@slow_if_watchfiles_borked
 def test_sees_deleted_directory(watcher_test: WatcherTest, watched_path: Path) -> None:
     # We only really care about deleted directories that contain at least a file.
     deleted_path = watched_path / "deleted"
@@ -193,6 +244,8 @@ def test_sees_deleted_directory(watcher_test: WatcherTest, watched_path: Path) -
     assert change_seen
 
 
+@xfail_if_watchfiles_borked
+@slow_if_watchfiles_borked
 def test_sees_file_in_directory_moved_in(
     watcher_test: WatcherTest, watched_path: Path, tmp_path: Path
 ) -> None:
@@ -207,6 +260,8 @@ def test_sees_file_in_directory_moved_in(
     assert change_seen
 
 
+@xfail_if_watchfiles_borked
+@slow_if_watchfiles_borked
 def test_sees_directory_moved_out(
     watcher_test: WatcherTest, watched_path: Path, tmp_path: Path
 ) -> None:
@@ -221,6 +276,7 @@ def test_sees_directory_moved_out(
     assert change_seen
 
 
+@pytest.mark.slowtest
 def test_ignores_opened_file(watcher_test: WatcherTest, watched_path: Path) -> None:
     file_path = watched_path / "file"
     file_path.touch()
@@ -237,7 +293,16 @@ def watch_filter(demo_project: Project) -> WatchFilter:
     return WatchFilter(env)
 
 
-@pytest.mark.parametrize("path", [".dotfile", "webpack/node_modules"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".dotfile",
+        pytest.param(
+            "webpack/node_modules",
+            marks=xfail_if_watchfiles_borked,
+        ),
+    ],
+)
 def test_WatchFilter_false(
     watch_filter: WatchFilter, path: str, project: Project
 ) -> None:

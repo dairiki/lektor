@@ -353,6 +353,7 @@ class Environment:
     jinja_env: jinja2.Environment
     plugin_controller: PluginController
     root_path: str
+
     build_programs: list[tuple[type[SourceObject], type[BuildProgram[SourceObject]]]]
     special_file_assets: dict[str, type[Asset]]
     special_file_suffixes: dict[str, str]

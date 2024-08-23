@@ -1,18 +1,27 @@
 from __future__ import annotations
 
 import os
+import sysconfig
+import types
 from typing import Any
 from typing import Generator
 from typing import TYPE_CHECKING
 
-import watchfiles
-
 from lektor.utils import get_cache_dir
+
+# Importing watchfiles currently segfault under free-threading python
+# https://github.com/samuelcolvin/watchfiles/issues/299
+WATCHFILES_IS_BORKED = sysconfig.get_config_var("Py_GIL_DISABLED")
 
 if TYPE_CHECKING:
     from _typeshed import StrPath
-    from lektor.environment import Environment
+    import watchfiles
     from watchfiles.main import FileChange
+    from lektor.environment import Environment
+elif WATCHFILES_IS_BORKED:
+    watchfiles = types.SimpleNamespace(DefaultFilter=object)
+else:
+    import watchfiles
 
 
 def watch_project(
@@ -26,6 +35,9 @@ def watch_project(
     deemed not to be Lektor source files.
 
     """
+    if WATCHFILES_IS_BORKED:
+        return iter([])  # type: ignore[return-value]
+
     watch_paths = [
         os.fspath(path)
         for path in (env.root_path, env.project.project_file, *env.theme_paths)
