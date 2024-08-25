@@ -1,5 +1,24 @@
+from __future__ import annotations
+
 import json
 import os
+import re
+from typing import Dict
+from typing import Literal
+from typing import Mapping
+from typing import MutableMapping
+from typing import overload
+
+
+class I18nBlock(Dict[str, str]):
+    """An dict mapping lang to internationalized translations for a particular label.
+
+    Note that lang "en" is treated specially in that it is the fallback
+    if no translation for the desired lang is found.
+
+    I18nBlocks *should* always have a value for "en".
+
+    """
 
 
 translations_path = os.path.join(
@@ -48,21 +67,41 @@ def load_i18n_block(key):
     return rv
 
 
-def get_i18n_block(inifile_or_dict, key, pop=False):
+@overload
+def get_i18n_block(
+    inifile_or_dict: MutableMapping[str, str], key: str, pop: Literal[True]
+) -> I18nBlock:
+    ...
+
+
+@overload
+def get_i18n_block(
+    inifile_or_dict: Mapping[str, str], key: str, pop: Literal[False] = False
+) -> I18nBlock:
+    ...
+
+
+def get_i18n_block(
+    inifile_or_dict: Mapping[str, str], key: str, pop: bool = False
+) -> I18nBlock:
     """Extracts an i18n block from an ini file or dictionary for a given
     key. If "pop", delete keys from "inifile_or_dict".
     """
-    rv = {}
-    for k in list(inifile_or_dict):
-        if k == key:
-            # English is the internal default language with preferred
-            # treatment.
-            rv["en"] = inifile_or_dict.pop(k) if pop else inifile_or_dict[k]
-        elif k.startswith(key + "["):
-            rv[k[len(key) + 1 : -1]] = (
-                inifile_or_dict.pop(k) if pop else inifile_or_dict[k]
-            )
-    return rv
+    data = inifile_or_dict
+    if pop and not isinstance(data, MutableMapping):
+        raise TypeError("A mutable mapping if pop is set")
+
+    # English is the internal default language with preferred
+    # treatment.
+    key_re = re.escape(key) + r"(?x: \[ (?P<lang> \S+) \] )?"
+    match_key = re.compile(key_re).fullmatch
+
+    key_map = [(key_, m.group(1) or "en") for key_ in data if (m := match_key(key_))]
+    if pop:
+        assert isinstance(data, MutableMapping)
+        return I18nBlock((lang, data.pop(key_)) for key_, lang in key_map)
+
+    return I18nBlock((lang, data[key_]) for key_, lang in key_map)
 
 
 def generate_i18n_kvs(**opts):

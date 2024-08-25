@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import sys
 import uuid
 from functools import update_wrapper
+from typing import Callable
 from typing import TYPE_CHECKING
+from typing import TypeVar
 
 import babel.dates
 import jinja2
@@ -31,6 +34,11 @@ from lektor.publisher import builtin_publishers
 from lektor.utils import format_lat_long
 from lektor.utils import tojson_filter
 
+if sys.version_info >= (3, 10):
+    from typing import ParamSpec
+else:
+    from typing_extensions import ParamSpec
+
 if TYPE_CHECKING:
     from typing import Literal
     from lektor.assets import Asset
@@ -38,7 +46,13 @@ if TYPE_CHECKING:
     from lektor.sourceobj import SourceObject
 
 
-def _prevent_inlining(wrapped):
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
+_SourceObj_co = TypeVar("_SourceObj_co", bound="SourceObject", covariant=True)
+_Asset_co = TypeVar("_Asset_co", bound="Asset", covariant=True)
+
+
+def _prevent_inlining(wrapped: Callable[_P, _T]) -> Callable[_P, _T]:
     """Ensure wrapped jinja filter does not get inlined by the template compiler.
 
     The jinja compiler normally assumes that filters are pure functions (whose
@@ -60,10 +74,12 @@ def _prevent_inlining(wrapped):
 
     # the use of @pass_context will prevent inlining
     @jinja2.pass_context
-    def wrapper(_jinja_ctx, *args, **kwargs):
+    def wrapper(
+        _jinja_ctx: jinja2.runtime.Context, *args: _P.args, **kwargs: _P.kwargs
+    ) -> _T:
         return wrapped(*args, **kwargs)
 
-    return update_wrapper(wrapper, wrapped)
+    return update_wrapper(wrapper, wrapped)  # type: ignore[return-value]
 
 
 def _dates_filter(name, wrapped):
@@ -144,7 +160,7 @@ SPECIAL_ARTIFACTS = [".htaccess", ".htpasswd"]
 EXCLUDED_ASSETS = ["_*", ".*"]
 
 # Default glob pattern of included files (higher-priority than EXCLUDED_ASSETS).
-INCLUDED_ASSETS = []
+INCLUDED_ASSETS: list[str] = []
 
 
 def any_fnmatch(filename, patterns):
@@ -163,10 +179,11 @@ class CustomJinjaEnvironment(jinja2.Environment):
             rv = jinja2.Environment._load_template(self, name, globals)
             if ctx is not None:
                 filename = rv.filename
-                ctx.record_dependency(filename)
+                if filename is not None:
+                    ctx.record_dependency(filename)
             return rv
         except jinja2.TemplateSyntaxError as e:
-            if ctx is not None:
+            if e.filename is not None and ctx is not None:
                 ctx.record_dependency(e.filename)
             raise
         except jinja2.TemplateNotFound as e:
@@ -176,9 +193,11 @@ class CustomJinjaEnvironment(jinja2.Environment):
                 # out watcher to pick up templates that will appear in the
                 # future.  This assumes the loader is a file system loader.
                 for template_name in e.templates:
-                    pieces = split_template_path(template_name)
-                    for base in self.loader.searchpath:
-                        ctx.record_dependency(os.path.join(base, *pieces))
+                    if not isinstance(template_name, (jinja2.Undefined, type(None))):
+                        pieces = split_template_path(template_name)
+                        assert isinstance(self.loader, jinja2.FileSystemLoader)
+                        for base in self.loader.searchpath:
+                            ctx.record_dependency(os.path.join(base, *pieces))
             raise
 
 
@@ -278,7 +297,7 @@ class Environment:
         self.virtualpathresolver("siblings")(siblings_resolver)
 
     root_path: str
-    build_programs: list[tuple[type[SourceObject], type[BuildProgram]]]
+    build_programs: list[tuple[type[SourceObject], type[BuildProgram[SourceObject]]]]
     special_file_assets: dict[str, type[Asset]]
     special_file_suffixes: dict[str, str]
 
@@ -295,7 +314,7 @@ class Environment:
         load_packages(self)
         initialize_plugins(self)
 
-    def load_config(self):
+    def load_config(self) -> Config:
         """Loads the current config."""
         return Config(self.project.project_file)
 
@@ -380,18 +399,20 @@ class Environment:
     # -- methods for the plugin system
 
     def add_build_program(
-        self, cls: type[SourceObject], program: type[BuildProgram]
+        self, cls: type[_SourceObj_co], program: type[BuildProgram[_SourceObj_co]]
     ) -> None:
         self.build_programs.append((cls, program))
 
     def add_asset_type(
-        self, asset_cls: type[Asset], build_program: type[BuildProgram]
+        self, asset_cls: type[_Asset_co], build_program: type[BuildProgram[_Asset_co]]
     ) -> None:
         self.build_programs.append((asset_cls, build_program))
-        self.special_file_assets[asset_cls.source_extension] = asset_cls
-        if asset_cls.artifact_extension:
-            cext = asset_cls.source_extension + asset_cls.artifact_extension
-            self.special_file_suffixes[cext] = asset_cls.source_extension
+        # XXX: this is identical to add_build_program, except in annotation
+        # XXX: this is unused and broken.  Assets do not have a source_extension attribute
+        # self.special_file_assets[asset_cls.source_extension] = asset_cls
+        # if asset_cls.artifact_extension:
+        #     cext = asset_cls.source_extension + asset_cls.artifact_extension
+        #     self.special_file_suffixes[cext] = asset_cls.source_extension
 
     def add_publisher(self, scheme, publisher):
         if scheme in self.publishers:

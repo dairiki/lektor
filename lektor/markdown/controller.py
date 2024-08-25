@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import threading
 from abc import ABC
 from abc import abstractmethod
@@ -25,13 +27,13 @@ if TYPE_CHECKING:  # pragma: no cover
 
 @dataclass
 class _Threadlocal(threading.local):
-    renderer_context: Optional["RendererContext"] = None
+    renderer_context: RendererContext | None = None
 
 
 _threadlocal = _Threadlocal()
 
 Meta = Dict[str, Any]
-FieldOptions = Mapping[str, str]
+FieldOptions = Mapping[str, Optional[str]]
 
 
 def require_ctx() -> Context:
@@ -45,11 +47,11 @@ def require_ctx() -> Context:
 class RendererContext(NamedTuple):
     """Extra data used during Markdown rendering."""
 
-    record: Optional[SourceObject]
+    record: SourceObject | None
     meta: Meta
     field_options: FieldOptions
 
-    def __enter__(self) -> "RendererContext":
+    def __enter__(self) -> RendererContext:
         assert _threadlocal.renderer_context is None
         _threadlocal.renderer_context = self
         return self
@@ -68,7 +70,7 @@ class RendererHelper:
     """Various helpers used by our markdown renderer subclasses."""
 
     @property
-    def record(self) -> Optional[SourceObject]:
+    def record(self) -> SourceObject | None:
         """The record that owns the markdown field being rendered.
 
         This is used as the base for resolving relative URLs in the Markdown text.
@@ -143,7 +145,7 @@ class RenderResult(NamedTuple):
 
 
 class MarkdownController(ABC):
-    def __init__(self, env: "Environment") -> None:
+    def __init__(self, env: Environment) -> None:
         self.env = env
 
     @abstractmethod
@@ -154,7 +156,7 @@ class MarkdownController(ABC):
     def parser(self) -> Callable[[str], str]:  # () -> mistune.Mistune
         return self.make_parser()
 
-    def get_cache_key(self) -> Optional[Hashable]:
+    def get_cache_key(self) -> Hashable | None:
         """Get cache key.
 
         Identical keys guarantee that the rendered result for a given string,
@@ -169,7 +171,7 @@ class MarkdownController(ABC):
         return ctx.base_url
 
     def render(
-        self, source: str, record: Optional[SourceObject], field_options: FieldOptions
+        self, source: str, record: SourceObject | None, field_options: FieldOptions
     ) -> RenderResult:
         """Render markdown string"""
         meta: Meta = {}
@@ -186,13 +188,13 @@ class ControllerCache:
     """Helper for constructing MarkdownControllers thats ensures just one
     controller per Lektor Environment."""
 
-    _cache: MutableMapping["Environment", MarkdownController]
+    _cache: MutableMapping[Environment, MarkdownController]
 
-    def __init__(self, factory: Callable[["Environment"], MarkdownController]):
+    def __init__(self, factory: Callable[[Environment], MarkdownController]):
         self.controller_class = factory
         self._cache = WeakKeyDictionary()
 
-    def __call__(self, env: Optional["Environment"] = None) -> MarkdownController:
+    def __call__(self, env: Environment | None = None) -> MarkdownController:
         """Get MarkdownController for environment.
 
         If no value is passed for env, the env for the current Lektor build context

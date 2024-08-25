@@ -23,7 +23,7 @@ class Project:
         self.themes = themes or []
         self.id = hashlib.md5(self.tree.encode("utf-8")).hexdigest()
 
-    def open_config(self):
+    def open_config(self) -> IniFile:
         if self.project_file is None:
             raise RuntimeError("This project has no project file.")
         return IniFile(self.project_file)

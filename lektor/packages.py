@@ -12,21 +12,28 @@ from pathlib import Path
 from typing import Any
 from typing import Iterable
 from typing import Iterator
+from typing import Mapping
 from typing import TYPE_CHECKING
+from typing import TypedDict
 from venv import EnvBuilder
 
 import click
 import requests
 
-
 if TYPE_CHECKING:
     from _typeshed import StrPath
+
+    from inifile import IniFile
     from lektor.environment import Environment  # circ dependency
-else:
-    StrPath = object
+    from lektor.project import Project
 
 
-def _get_package_version_from_project(cfg, name):
+class PackageInfo(TypedDict):
+    name: str
+    version: str
+
+
+def _get_package_version_from_project(cfg: IniFile, name: str) -> PackageInfo | None:
     choices = (name.lower(), "lektor-" + name.lower())
     for pkg, version in cfg.section_as_dict("packages").items():
         if pkg.lower() in choices:
@@ -34,7 +41,7 @@ def _get_package_version_from_project(cfg, name):
     return None
 
 
-def add_package_to_project(project, req):
+def add_package_to_project(project: Project, req: str) -> PackageInfo:
     """Given a package requirement this returns the information about this
     plugin.
     """
@@ -73,7 +80,7 @@ def add_package_to_project(project, req):
     raise RuntimeError("The package could not be found on PyPI")
 
 
-def remove_package_from_project(project, name):
+def remove_package_from_project(project: Project, name: str) -> PackageInfo | None:
     cfg = project.open_config()
     choices = (name.lower(), "lektor-" + name.lower())
     for pkg, version in cfg.section_as_dict("packages").items():
@@ -238,7 +245,7 @@ class Requirements(Iterable[str], Sized):
 
 def update_cache(
     venv_path: Path,
-    remote_packages: dict[str, str],
+    remote_packages: Mapping[str, str],
     local_package_path: Path,
 ) -> None:
     """Ensure the package cache at venv_path is up-to-date.

@@ -19,6 +19,7 @@ from inifile import IniFile
 
 from lektor.constants import PRIMARY_ALT
 from lektor.i18n import get_i18n_block
+from lektor.i18n import I18nBlock
 from lektor.utils import bool_from_string
 from lektor.utils import secure_url
 
@@ -34,7 +35,7 @@ class ProjectConfig(TypedDict):
 
 
 class AltConfig(TypedDict):
-    name: dict[str, str]
+    name: I18nBlock
     url_prefix: str | None
     url_suffix: str | None
     primary: bool
@@ -123,7 +124,7 @@ def update_config_from_ini(config: dict[str, Any], inifile: IniFile) -> None:
 @dataclasses.dataclass
 class ServerInfo:
     id: str
-    name_i18n: dict[str, str]
+    name_i18n: I18nBlock
     target: str
     enabled: bool = True
     default: bool = False

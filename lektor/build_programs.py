@@ -22,6 +22,7 @@ from lektor.db import Attachment
 from lektor.db import Page
 from lektor.db import Record
 from lektor.exception import LektorException
+from lektor.i18n import I18nBlock
 from lektor.sourceobj import SourceObject
 from lektor.typing import ExcInfo
 
@@ -68,7 +69,7 @@ class SourceInfo:
     filename: SourceId | StrPath  # (see note below)
     alt: str = PRIMARY_ALT
     type: str = "unknown"
-    title_i18n: dict[str, str] = field(default_factory=dict)
+    title_i18n: I18nBlock = field(default_factory=I18nBlock)
 
     # XXX: currently the filename is always normalized (relative with forward slashes,
     # even on windows) when the SourceInfo is loaded from the build database. However
@@ -284,7 +285,7 @@ class AttachmentBuildProgram(BuildProgram[Attachment]):
             alt=self.source.alt,
             filename=self.source.attachment_filename,
             type="attachment",
-            title_i18n={"en": self.source["_id"]},
+            title_i18n=I18nBlock(en=self.source["_id"]),
         )
 
     def produce_artifacts(self) -> None:
