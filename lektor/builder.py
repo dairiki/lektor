@@ -1438,7 +1438,17 @@ class ThreadedBuildProgramBuilder(BuildProgramBuilder):
 
     executor: ThreadPoolExecutor
 
+    # FIXME: Hokey. Need a state object with build_all lifetime.
+    seen_artifact_ids: set[ArtifactId]
+
     _artifact_lock: KeyedLock = field(default_factory=KeyedLock)
+
+    def _is_unseen(self, artifact: Artifact) -> bool:
+        # FIXME: abstract this?
+        if (artifact_id := artifact.artifact_id) in self.seen_artifact_ids:
+            return False
+        self.seen_artifact_ids.add(artifact_id)
+        return True
 
     async def abuild(self, build_program: BuildProgram[SourceObject]) -> BuildResult:
         build_artifact_in_thread = self.build_artifact_in_thread
@@ -1448,6 +1458,7 @@ class ThreadedBuildProgramBuilder(BuildProgramBuilder):
         tasks = {
             asyncio.create_task(build_artifact_in_thread(artifact, build_func))
             for artifact in build_program.get_artifacts()
+            if self._is_unseen(artifact)
         }
 
         results = []
@@ -1458,6 +1469,7 @@ class ThreadedBuildProgramBuilder(BuildProgramBuilder):
                 tasks.update(
                     asyncio.create_task(build_artifact_in_thread(artifact, build_func))
                     for artifact, build_func in result.sub_artifacts
+                    if self._is_unseen(artifact)
                 )
                 results.append(result)
 
@@ -1571,6 +1583,7 @@ class ConcurrentBuildStrategy(BuildStrategy):
         self._event_loop = asyncio.new_event_loop()
         self._executor = ThreadPoolExecutor(max_workers=concurrency_config.max_workers)
         self._semaphore = asyncio.Semaphore(concurrency_config.max_simultaneous_builds)
+        self._seen_artifacts: set[ArtifactId] = set()
 
     def close(self) -> None:
         loop = self._event_loop
@@ -1583,7 +1596,10 @@ class ConcurrentBuildStrategy(BuildStrategy):
 
     async def _abuild(self, build_program: BuildProgram[SourceObject]) -> BuildResult:
         strategy = ThreadedBuildProgramBuilder(
-            self.builder, build_program.build_state, self._executor
+            self.builder,
+            build_program.build_state,
+            self._executor,
+            self._seen_artifacts,
         )
 
         async with self._semaphore:
@@ -1741,9 +1757,17 @@ class Builder:
 
         """
         path_cache = PathCache(self.env)
+
         to_build: deque[SourceObject] = deque(self.pad.get_all_roots())
+        seen_sources: set[SourceObject] = set()
+
         while to_build:
             source = to_build.popleft()
+
+            if source in seen_sources:
+                continue  # do not build the same source multiple times
+            seen_sources.add(source)
+
             prog = self._get_build_program(source, path_cache)
             yield prog
             to_build.extend(prog.iter_child_sources())

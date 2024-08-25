@@ -288,7 +288,7 @@ class VirtualSourceObject(DBSourceObject):
         self.record = record
 
     @property
-    def path(self):
+    def path(self) -> str:
         raise NotImplementedError()
 
     def get_mtime(self, path_cache: PathCache) -> float | None:
@@ -304,7 +304,7 @@ class VirtualSourceObject(DBSourceObject):
         return self.record
 
     @property
-    def alt(self):
+    def alt(self) -> str:
         return self.record.alt
 
     def iter_source_filenames(self):
