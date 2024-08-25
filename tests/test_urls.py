@@ -16,10 +16,10 @@ from .conftest import restore_import_state  # pylint: disable=wrong-import-order
 
 
 @pytest.fixture(scope="module")
-def pad(project):
+def pad(demo_project):
     # Use a module-scoped pad to speed tests
     with restore_import_state():
-        return Environment(project).new_pad()
+        return Environment(demo_project).new_pad()
 
 
 @pytest.fixture

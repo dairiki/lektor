@@ -152,11 +152,6 @@ def clear_environ(monkeypatch):
             monkeypatch.delenv(name)
 
 
-@pytest.fixture(scope="session")
-def project(data_path):
-    return Project.from_path(data_path / "demo-project")
-
-
 @pytest.fixture(scope="function")
 def scratch_project_data(tmp_path):
     base = tmp_path / "scratch-proj"
@@ -211,6 +206,29 @@ def scratch_project_data(tmp_path):
     return base
 
 
+@pytest.fixture(scope="session")
+def demo_project(data_path):
+    return Project.from_path(data_path / "demo-project")
+
+
+@pytest.fixture
+def project(data_path: Path, request: pytest.FixtureRequest) -> Project:
+    """Get a Lektor Project instance.
+
+    This does some magic to get the right project path when
+    a scratch project has been requested.
+    """
+    project_path = data_path / "demo-project"
+
+    # If scratch project is in use, automatically switch to that.
+    if "scratch_project_data" in request.fixturenames:
+        project_path = request.getfixturevalue("scratch_project_data")
+
+    project = Project.from_path(project_path)
+    assert project is not None
+    return project
+
+
 @pytest.fixture(scope="function")
 def scratch_project(scratch_project_data):
     return Project.from_path(scratch_project_data)
@@ -249,10 +267,10 @@ def builder(tmp_path, pad):
 
 
 @pytest.fixture(scope="session")
-def built_demo(tmp_path_factory, project):
+def built_demo(tmp_path_factory, demo_project):
     output_path = tmp_path_factory.mktemp("demo-output")
     with restore_import_state():
-        env = Environment(project)
+        env = Environment(demo_project)
         builder = Builder(env.new_pad(), os.fspath(output_path))
         builder.build_all()
     return output_path

@@ -232,8 +232,8 @@ def test_ignores_opened_file(watcher_test: WatcherTest, watched_path: Path) -> N
 
 
 @pytest.fixture(scope="session")
-def watch_filter(project: Project) -> WatchFilter:
-    env = Environment(project, load_plugins=False)
+def watch_filter(demo_project: Project) -> WatchFilter:
+    env = Environment(demo_project, load_plugins=False)
     return WatchFilter(env)
 
 
