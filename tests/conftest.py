@@ -142,6 +142,14 @@ with suppress(ModuleNotFoundError):
     __import__("setuptools")
 
 
+@pytest.fixture
+def clear_environ(monkeypatch):
+    # Make sure we don't have LEKTOR_PROJECT or some such set
+    for name in os.environ:
+        if name.startswith("LEKTOR_"):
+            monkeypatch.delenv(name)
+
+
 @pytest.fixture(scope="session")
 def project(data_path):
     return Project.from_path(data_path / "demo-project")

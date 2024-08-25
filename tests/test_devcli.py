@@ -9,6 +9,9 @@ import lektor.quickstart
 from lektor.cli import cli
 
 
+pytestmark = pytest.mark.usefixtures("clear_environ")
+
+
 @pytest.fixture(scope="session")
 def can_symlink(tmp_path_factory):
     """Test whether current user has sufficient privileges to create symlinks."""

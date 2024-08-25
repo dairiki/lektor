@@ -13,6 +13,9 @@ from lektor.project import Project
 from lektor.publisher import publish
 
 
+pytestmark = pytest.mark.usefixtures("clear_environ")
+
+
 def test_build_abort_in_existing_nonempty_dir(project_cli_runner):
     os.mkdir("build_dir")
     with open("build_dir/test", "w", encoding="utf-8"):
@@ -37,6 +40,7 @@ def test_alias(project_cli_runner):
     assert "Name: Demo Project" in result.output
 
 
+@pytest.mark.usefixtures("clear_environ")
 def test_dev_cmd_alias(isolated_cli_runner):
     result = isolated_cli_runner.invoke(cli, ["dev", "s"])  # short for 'shell'
     assert result.exit_code == 2
@@ -57,6 +61,7 @@ def test_alias_no_matches(project_cli_runner):
     assert "Error: No such command" in result.output
 
 
+@pytest.mark.usefixtures("clear_environ")
 def test_build_no_project(isolated_cli_runner):
     result = isolated_cli_runner.invoke(cli, ["build"])
     assert result.exit_code == 2
