@@ -792,7 +792,7 @@ def _unpack_virtual_source_path(
     return path, alt
 
 
-@dataclass
+@dataclass(frozen=True)
 class VirtualSourceInfo(_ArtifactSourceInfo):
     path: str
     alt: str | None
@@ -848,7 +848,7 @@ class SubArtifact(NamedTuple):
     build_func: ArtifactBuildFunc
 
 
-@dataclass
+@dataclass(frozen=True)
 class Artifact:
     """Various information about a build artifact."""
 
@@ -865,7 +865,7 @@ class Artifact:
         return self.artifact_id
 
 
-@dataclass
+@dataclass(frozen=True)
 class BuildArtifactResult:
     updated: bool
     sub_artifacts: Collection[SubArtifact] = ()
@@ -1116,7 +1116,7 @@ class DbUpdate(Protocol):
         ...
 
 
-@dataclass
+@dataclass(frozen=True)
 class DeleteDependencyInfo(DbUpdate):
     """Delete existing dependency information from the database."""
 
@@ -1126,7 +1126,7 @@ class DeleteDependencyInfo(DbUpdate):
         con.execute("DELETE FROM artifacts WHERE artifact = ?", [self.artifact_id])
 
 
-@dataclass
+@dataclass(frozen=True)
 class AppendDependencyInfo(DbUpdate):
     """This updates the dependencies recorded for the artifact based
     on the direct sources plus the provided dependencies.
@@ -1191,7 +1191,7 @@ class AppendDependencyInfo(DbUpdate):
             )
 
 
-@dataclass
+@dataclass(frozen=True)
 class UpdateConfigHash(DbUpdate):
     """This updates the confighash recorded for the artifact."""
 
@@ -1214,7 +1214,7 @@ class UpdateConfigHash(DbUpdate):
             )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ClearDirtyFlag(DbUpdate):
     """Clears the dirty flag for all sources."""
 
@@ -1232,7 +1232,7 @@ class ClearDirtyFlag(DbUpdate):
         reporter.report_dirty_flag(False)
 
 
-@dataclass
+@dataclass(frozen=True)
 class SetDirtyFlag(DbUpdate):
     """Set dirty flag for all sources.
 
@@ -1336,7 +1336,7 @@ class BuildResult(NamedTuple):
         return self.prog.primary_artifact
 
 
-@dataclass
+@dataclass(frozen=True)
 class BuildProgramBuilder:
     """How to run a BuildProgram to generate its artifacts and sub-artifacts.
 
@@ -1392,7 +1392,7 @@ class BuildProgramBuilder:
             self.build_state.write_source_info(source_info)
 
 
-@dataclass
+@dataclass(frozen=True)
 class ThreadedBuildProgramBuilder(BuildProgramBuilder):
     """How to run a BuildProgram to generate its artifacts and sub-artifacts."""
 

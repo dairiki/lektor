@@ -10,6 +10,7 @@ from unittest import mock
 import pytest
 
 import lektor.environment
+from lektor.builder import ArtifactTransaction
 from lektor.db import Pad
 from lektor.environment import Environment
 
@@ -46,17 +47,14 @@ def source_path():
 
 
 @pytest.fixture
-def dummy_ctx(dummy_ctx, source_path):
+def dummy_artifact_txn(builder, source_path):
     if source_path is None:
-        source = None
+        source_obj = None
     else:
-        source = dummy_ctx.pad.get(source_path)
-
-    artifact = dummy_ctx.artifact_txn.artifact
-    artifact.source_obj = source
-    if source is not None:
-        artifact.sources = tuple(source.iter_source_filenames())
-    return dummy_ctx
+        source_obj = builder.pad.get(source_path)
+    build_state = builder.new_build_state()
+    artifact = build_state.new_artifact("dummy", source_obj=source_obj)
+    return ArtifactTransaction(build_state, artifact)
 
 
 def test_jinja2_feature_autoescape(compile_template):
