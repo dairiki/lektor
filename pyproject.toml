@@ -197,7 +197,6 @@ warn_return_any = false
 # These are not checked at all
 module = [
     "lektor.cli",
-    "lektor.context",
     "lektor.compat",
     "lektor.databags",
     "lektor.datamodel",
@@ -234,6 +233,7 @@ module = [
     "lektor.assets",
     "lektor.constants",
     "lektor.environment.config",
+    "lektor.context",
     "lektor.reporter",
     "lektor.typing",
     "tests.test_packages",

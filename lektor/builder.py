@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Any
 from typing import Callable
+from typing import Collection
 from typing import IO
 from typing import Iterator
 from typing import NewType
@@ -26,6 +27,7 @@ from lektor.buildfailures import FailureController
 from lektor.constants import PRIMARY_ALT
 from lektor.context import Context
 from lektor.reporter import reporter
+from lektor.sourceobj import SourceObject
 from lektor.sourcesearch import find_files
 from lektor.utils import deprecated
 from lektor.utils import fs_enc
@@ -142,10 +144,10 @@ class BuildState:
         self.builder.failure_controller.store_failure(artifact.artifact_id, exc_info)
         reporter.report_failure(artifact, exc_info)
 
-    def get_file_info(self, filename):
-        if filename:
-            return self.path_cache.get_file_info(filename)
-        return None
+    def get_file_info(self, filename: StrPath) -> FileInfo:
+        if not filename:
+            raise ValueError("bad filename: {filename!r}")
+        return self.path_cache.get_file_info(filename)
 
     def to_source_id(self, filename: StrPath) -> SourceId:
         return self.path_cache.to_source_id(filename)
@@ -189,8 +191,13 @@ class BuildState:
         return self.artifact_id_from_destination_filename(filename)
 
     def new_artifact(
-        self, artifact_name, sources=None, source_obj=None, extra=None, config_hash=None
-    ):
+        self,
+        artifact_name: str,
+        sources: Collection[str] | None = None,
+        source_obj: SourceObject | None = None,
+        extra: Any | None = None,  # XXX: appears unused?
+        config_hash: str | None = None,
+    ) -> Artifact:
         """Creates a new artifact and returns it."""
         dst_filename = self.get_destination_filename(artifact_name)
         artifact_id = self.artifact_id_from_destination_filename(dst_filename)
@@ -1087,7 +1094,7 @@ class PathCache:
     def to_source_filename(self, filename: StrPath) -> SourceId:
         return self.to_source_id(filename)
 
-    def get_file_info(self, filename):
+    def get_file_info(self, filename: StrPath) -> FileInfo:
         """Returns the file info for a given file.  This will be cached
         on the generator for the lifetime of it.  This means that further
         accesses to this file info will not cause more IO but it might not
