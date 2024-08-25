@@ -197,7 +197,6 @@ warn_return_any = false
 # These are not checked at all
 module = [
     "lektor.cli",
-    "lektor.db",
     "lektor.context",
     "lektor.compat",
     "lektor.databags",
@@ -234,6 +233,7 @@ disallow_untyped_defs = true
 module = [
     "lektor.assets",
     "lektor.constants",
+    "lektor.environment.config",
     "lektor.reporter",
     "lektor.typing",
     "tests.test_packages",

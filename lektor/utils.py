@@ -26,6 +26,7 @@ from typing import Callable
 from typing import ClassVar
 from typing import Iterable
 from typing import overload
+from typing import TYPE_CHECKING
 from typing import TypeVar
 
 from jinja2 import is_undefined
@@ -34,6 +35,19 @@ from slugify import slugify as _slugify
 from werkzeug.http import http_date
 from werkzeug.urls import iri_to_uri
 from werkzeug.urls import uri_to_iri
+
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    from typing_extensions import Self
+
+if TYPE_CHECKING:
+    from _typeshed import Unused
+
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+_H = TypeVar("_H", bound=Hashable)
+_T = TypeVar("_T")
 
 
 is_windows = os.name == "nt"
@@ -411,7 +425,9 @@ class Url(urllib.parse.SplitResult):
 
     """
 
-    def __new__(cls, value: str):
+    url: str
+
+    def __new__(cls: type[Self], value: str) -> Self:
         # XXX: deprecate use of constructor so that eventually we can make its signature
         # match that of the SplitResult base class.
         warnings.warn(
@@ -428,7 +444,7 @@ class Url(urllib.parse.SplitResult):
         return cls.from_string(value)
 
     @classmethod
-    def from_string(cls, value: str) -> Url:
+    def from_string(cls: type[Self], value: str) -> Self:
         """Construct instance from URL string.
 
         The input URL can be a URI (all ASCII) or an IRI (internationalized).
@@ -531,19 +547,14 @@ def atomic_open(filename, mode="r", encoding=None):
         f = open(filename, mode=mode, encoding=encoding)
         tmp_filename = None
     try:
-        yield f
-    except Exception as e:
-        f.close()
-        _exc_type, exc_value, tb = sys.exc_info()
+        with f:
+            yield f
+    except Exception:
         if tmp_filename is not None:
             with suppress(OSError):
                 os.remove(tmp_filename)
+        raise
 
-        if exc_value.__traceback__ is not tb:
-            raise exc_value.with_traceback(tb) from e
-        raise exc_value from e
-
-    f.close()
     if tmp_filename is not None:
         os.replace(tmp_filename, filename)
 
@@ -584,7 +595,17 @@ def secure_url(url: str) -> str:
     return parts.geturl()
 
 
-def bool_from_string(val, default=None):
+@overload
+def bool_from_string(val: object, default: None = None) -> bool | None:
+    ...
+
+
+@overload
+def bool_from_string(val: object, default: _T) -> bool | _T:
+    ...
+
+
+def bool_from_string(val: object, default: Any = None) -> Any:
     if val in (True, False, 1, 0):
         return bool(val)
     if isinstance(val, str):
@@ -761,9 +782,6 @@ def process_extra_flags(flags):
     return rv
 
 
-_H = TypeVar("_H", bound=Hashable)
-
-
 def unique_everseen(seq: Iterable[_H]) -> Iterable[_H]:
     """Filter out duplicates from iterable."""
     # This is a less general version of more_itertools.unique_everseen.
@@ -794,11 +812,11 @@ class RecursionCheck(threading.local):
 
     level = 0
 
-    def __enter__(self) -> bool:
+    def __enter__(self) -> int:
         self.level += 1
         return self.level
 
-    def __exit__(self, _t, _v, _tb) -> None:
+    def __exit__(self, _t: Unused, _v: Unused, _tb: Unused) -> None:
         self.level -= 1
 
 
@@ -822,9 +840,6 @@ class DeprecatedWarning(DeprecationWarning):
         if self.version:
             message += f" since version {self.version}"
         return message
-
-
-_F = TypeVar("_F", bound=Callable[..., Any])
 
 
 @dataclass

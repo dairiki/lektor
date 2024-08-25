@@ -65,7 +65,7 @@ class SourceObject:
         return ()
 
     @property
-    def url_path(self):
+    def url_path(self) -> str:
         """The URL path of this source object if available."""
         raise NotImplementedError()
 

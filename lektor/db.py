@@ -14,6 +14,9 @@ from itertools import chain
 from itertools import islice
 from operator import methodcaller
 from pathlib import Path
+from typing import Iterable
+from typing import Iterator
+from typing import Sequence
 from typing import TYPE_CHECKING
 from urllib.parse import urljoin
 
@@ -24,6 +27,7 @@ from jinja2.utils import LRUCache
 from werkzeug.utils import cached_property
 
 from lektor import metaformat
+from lektor.assets import Asset
 from lektor.assets import get_asset_root
 from lektor.constants import PRIMARY_ALT
 from lektor.context import Context
@@ -330,13 +334,13 @@ class Record(DBSourceObject):
         return self
 
     @property
+    def parent(self) -> Record | None:
+        raise NotImplementedError
+
+    @property
     def datamodel(self):
         """Returns the data model for this record."""
-        try:
-            return self.pad.db.datamodels[self._data["_model"]]
-        except LookupError:
-            # If we cannot find the model we fall back to the default one.
-            return self.pad.db.default_model
+        return self.pad.db.datamodels[self._data["_model"]]
 
     @property
     def alt(self):
@@ -401,7 +405,7 @@ class Record(DBSourceObject):
         return (self.get_record_label_i18n() or {}).get("en")
 
     @property
-    def url_path(self):
+    def url_path(self) -> str:
         # This is redundant (it's the same as the inherited
         # SourceObject.url_path) but is here to silence
         # pylint ("W0223: Method 'url_path' is abstract in class
@@ -452,7 +456,7 @@ class Record(DBSourceObject):
         """Returns a sort key for the given field specifications specific
         for the data in the record.
         """
-        rv = [None] * len(fields)
+        rv: list[_CmpHelper | None] = [None] * len(fields)
         for idx, field in enumerate(fields):
             if field[:1] == "-":
                 field = field[1:]
@@ -565,7 +569,7 @@ class Page(Record):
         yield os.path.join(fs_path, "contents.lr")
 
     @property
-    def url_path(self):
+    def url_path(self) -> str:
         pg = self.datamodel.pagination_config
         path = self._get_url_path(self.alt)
         _, _, last_part = path.rpartition("/")
@@ -767,7 +771,7 @@ class Attachment(Record):
         yield attachment_filename
 
     @property
-    def url_path(self):
+    def url_path(self) -> str:
         # Attachments are only emitted for the primary alternative.
         primary_alt = self.pad.config.primary_alternative or PRIMARY_ALT
         return self._get_url_path(alt=primary_alt)
@@ -1281,7 +1285,7 @@ default_slug_descriptor = property(get_default_slug)
 
 
 class Database:
-    def __init__(self, env, config=None):
+    def __init__(self, env: Environment, config: Config | None = None):
         self.env = env
         if config is None:
             config = env.load_config()
@@ -1802,7 +1806,7 @@ class Pad:
 
         return False
 
-    def get_asset(self, path):
+    def get_asset(self, path: str) -> Asset | None:
         """Loads an asset by path."""
         clean_path = cleanup_path(path).strip("/")
 
@@ -1957,16 +1961,20 @@ class TreeItem:
         return sorted(names, key=lambda name: name.lower())
 
     def iter_children(
-        self, include_attachments=True, include_pages=True, order_by=None
-    ):
+        self,
+        include_attachments: bool = True,
+        include_pages: bool = True,
+        order_by: Sequence[str] | None = None,
+    ) -> Iterator[TreeItem]:
         """Iterates over all children"""
+        children: Iterable[TreeItem]
         children = (
             self.tree.get(posixpath.join(self.path, name), persist=False)
             for name in self._get_child_ids(include_attachments, include_pages)
         )
         if order_by is not None:
             children = sorted(children, key=methodcaller("get_sort_key", order_by))
-        return children
+        return iter(children)
 
     def get_children(
         self,

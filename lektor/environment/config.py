@@ -1,16 +1,55 @@
+from __future__ import annotations
+
 import copy
+import dataclasses
 import os
-import re
 from collections import OrderedDict
+from functools import cached_property
+from typing import Any
+from typing import Iterator
+from typing import Literal
+from typing import Mapping
+from typing import overload
+from typing import Sequence
+from typing import TYPE_CHECKING
+from typing import TypedDict
 from urllib.parse import urlsplit
 
 from inifile import IniFile
-from werkzeug.utils import cached_property
 
 from lektor.constants import PRIMARY_ALT
 from lektor.i18n import get_i18n_block
 from lektor.utils import bool_from_string
 from lektor.utils import secure_url
+
+if TYPE_CHECKING:
+    from _typeshed import StrPath
+
+
+class ProjectConfig(TypedDict):
+    name: str | None
+    locale: str
+    url: str | None
+    url_style: Literal["relative", "absolute", "external"]
+
+
+class AltConfig(TypedDict):
+    name: dict[str, str]
+    url_prefix: str | None
+    url_suffix: str | None
+    primary: bool
+    locale: str
+
+
+class ConfigValues(TypedDict):
+    EPHEMERAL_RECORD_CACHE_SIZE: int
+    ATTACHMENT_TYPES: dict[str, str]
+    PROJECT: ProjectConfig
+    THEME_SETTINGS: dict[str, str]
+    PACKAGES: dict[str, str]
+    ALTERNATIVES: dict[str, AltConfig]
+    PRIMARY_ALTERNATIVE: str | None
+    SERVERS: dict[str, dict[str, str]]
 
 
 DEFAULT_CONFIG = {
@@ -54,10 +93,9 @@ DEFAULT_CONFIG = {
 }
 
 
-def update_config_from_ini(config, inifile):
+def update_config_from_ini(config: dict[str, Any], inifile: IniFile) -> None:
     for section_name in ("ATTACHMENT_TYPES", "PROJECT", "PACKAGES", "THEME_SETTINGS"):
-        section_config = inifile.section_as_dict(section_name.lower())
-        config[section_name].update(section_config)
+        config[section_name].update(inifile.section_as_dict(section_name.lower()))
 
     for sect in inifile.sections():
         if sect.startswith("servers."):
@@ -82,42 +120,36 @@ def update_config_from_ini(config, inifile):
             raise RuntimeError("Alternatives defined but no primary set.")
 
 
+@dataclasses.dataclass
 class ServerInfo:
-    def __init__(self, id, name_i18n, target, enabled=True, default=False, extra=None):
-        self.id = id
-        self.name_i18n = name_i18n
-        self.target = target
-        self.enabled = enabled
-        self.default = default
-        self.extra = extra or {}
+    id: str
+    name_i18n: dict[str, str]
+    target: str
+    enabled: bool = True
+    default: bool = False
+    extra: dict[str, str] = dataclasses.field(default_factory=dict)
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self.name_i18n.get("en") or self.id
 
     @property
-    def short_target(self):
-        match = re.match(r"([a-z]+)://([^/]+)", self.target)
-        if match is not None:
-            protocol, server = match.groups()
-            return f"{server} via {protocol}"
+    def short_target(self) -> str:
+        url = urlsplit(self.target)
+        if url.scheme and url.netloc:
+            return f"{url.netloc} via {url.scheme}"
         return self.target
 
-    def to_json(self):
+    def to_json(self) -> dict[str, Any]:
         return {
-            "id": self.id,
+            **dataclasses.asdict(self),
             "name": self.name,
-            "name_i18n": self.name_i18n,
-            "target": self.target,
             "short_target": self.short_target,
-            "enabled": self.enabled,
-            "default": self.default,
-            "extra": self.extra,
         }
 
 
 class Config:
-    def __init__(self, filename=None):
+    def __init__(self, filename: StrPath | None = None):
         self.filename = filename
         self.values = copy.deepcopy(DEFAULT_CONFIG)
 
@@ -125,44 +157,66 @@ class Config:
             inifile = IniFile(filename)
             update_config_from_ini(self.values, inifile)
 
-    def __getitem__(self, name):
+    @overload
+    def __getitem__(self, name: Literal["PROJECT"]) -> ProjectConfig:
+        ...
+
+    @overload
+    def __getitem__(self, name: Literal["ALTERNATIVES"]) -> Mapping[str, AltConfig]:
+        ...
+
+    @overload
+    def __getitem__(self, name: Literal["SERVERS"]) -> Mapping[str, Mapping[str, str]]:
+        ...
+
+    @overload
+    def __getitem__(self, name: Literal["PRIMARY_ALTERNATIVE"]) -> str | None:
+        ...
+
+    @overload
+    def __getitem__(self, name: Literal["EPHEMERAL_RECORD_CACHE_SIZE"]) -> int:
+        ...
+
+    @overload
+    def __getitem__(
+        self, name: Literal["ATTACHMENT_TYPES", "THEME_SETTINGS", "PACKAGES"]
+    ) -> Mapping[str, str]:
+        ...
+
+    def __getitem__(self, name: str) -> Any:
         return self.values[name]
 
     @property
-    def site_locale(self):
+    def site_locale(self) -> str:
         """The locale of this project."""
-        return self.values["PROJECT"]["locale"]
+        return self["PROJECT"]["locale"]
 
-    def get_servers(self, public=False):
+    def get_servers(self, public: bool = False) -> dict[str, ServerInfo]:
         """Returns a list of servers."""
-        rv = {}
-        for server in self.values["SERVERS"]:
-            server_info = self.get_server(server, public=public)
-            if server_info is None:
-                continue
-            rv[server] = server_info
-        return rv
+        return {
+            server: server_info
+            for server in self["SERVERS"]
+            if (server_info := self.get_server(server, public=public)) is not None
+        }
 
-    def get_default_server(self, public=False):
+    def get_default_server(self, public: bool = False) -> ServerInfo | None:
         """Returns the default server."""
-        choices = []
-        for server in self.values["SERVERS"]:
-            server_info = self.get_server(server, public=public)
-            if server_info is not None:
-                if server_info.default:
-                    return server_info
-                choices.append(server_info)
-        if len(choices) == 1:
-            return choices[0]
+        server_infos = list(self.get_servers().values())
+        for server_info in server_infos:
+            if server_info.default:
+                return server_info
+        if len(server_infos) == 1:
+            return server_infos[0]
         return None
 
-    def get_server(self, name, public=False):
+    def get_server(self, name: str, public: bool = False) -> ServerInfo | None:
         """Looks up a server info by name."""
-        info = self.values["SERVERS"].get(name)
-        if info is None or "target" not in info:
+        data = self["SERVERS"].get(name)
+        if data is None:
             return None
-        info = info.copy()
-        target = info.pop("target")
+        info = dict(data)
+        if (target := info.pop("target", None)) is None:
+            return None
         if public:
             target = secure_url(target)
         return ServerInfo(
@@ -174,65 +228,84 @@ class Config:
             extra=info,
         )
 
-    def is_valid_alternative(self, alt):
+    def is_valid_alternative(self, alt: str) -> bool:
         """Checks if an alternative ID is known."""
         if alt == PRIMARY_ALT:
             return True
-        return alt in self.values["ALTERNATIVES"]
+        return alt in self["ALTERNATIVES"]
 
-    def list_alternatives(self):
+    def list_alternatives(self) -> Sequence[str]:
         """Returns a sorted list of alternative IDs."""
-        return sorted(self.values["ALTERNATIVES"])
+        return sorted(self["ALTERNATIVES"])
 
-    def iter_alternatives(self):
+    def iter_alternatives(self) -> Iterator[str]:
         """Iterates over all alternatives.  If the system is disabled this
         yields '_primary'.
         """
         found = False
-        for alt in self.values["ALTERNATIVES"]:
+        for alt in self["ALTERNATIVES"]:
             if alt != PRIMARY_ALT:
                 yield alt
                 found = True
         if not found:
             yield PRIMARY_ALT
 
-    def get_alternative(self, alt):
+    def get_alternative(self, alt: str) -> AltConfig | None:
         """Returns the config setting of the given alt."""
         if alt == PRIMARY_ALT:
+            if self.primary_alternative is None:
+                return None
             alt = self.primary_alternative
-        return self.values["ALTERNATIVES"].get(alt)
+        return self["ALTERNATIVES"].get(alt)
 
-    def get_alternative_url_prefixes(self):
+    def get_alternative_url_prefixes(self) -> Sequence[tuple[str, str]]:
         """Returns a list of alternative url prefixes by length."""
-        items = [
-            (v["url_prefix"].lstrip("/"), k)
-            for k, v in self.values["ALTERNATIVES"].items()
-            if v["url_prefix"]
-        ]
-        items.sort(key=lambda x: -len(x[0]))
-        return items
 
-    def get_alternative_url_suffixes(self):
+        def sort_key(item: tuple[str, str]) -> int:
+            url_prefix, _alt = item
+            return len(url_prefix)
+
+        return sorted(
+            (
+                (url_prefix.lstrip("/"), alt)
+                for alt, alt_cfg in self["ALTERNATIVES"].items()
+                if (url_prefix := alt_cfg["url_prefix"])
+            ),
+            key=sort_key,
+            reverse=True,
+        )
+
+    def get_alternative_url_suffixes(self) -> Sequence[tuple[str, str]]:
         """Returns a list of alternative url suffixes by length."""
-        items = [
-            (v["url_suffix"].rstrip("/"), k)
-            for k, v in self.values["ALTERNATIVES"].items()
-            if v["url_suffix"]
-        ]
-        items.sort(key=lambda x: -len(x[0]))
-        return items
 
-    def get_alternative_url_span(self, alt=PRIMARY_ALT):
+        def sort_key(item: tuple[str, str]) -> int:
+            url_suffix, _alt = item
+            return len(url_suffix)
+
+        return sorted(
+            (
+                (url_suffix.rstrip("/"), alt)
+                for alt, alt_cfg in self["ALTERNATIVES"].items()
+                if (url_suffix := alt_cfg["url_suffix"])
+            ),
+            key=sort_key,
+            reverse=True,
+        )
+
+    def get_alternative_url_span(self, alt: str = PRIMARY_ALT) -> tuple[str, str]:
         """Returns the URL span (prefix, suffix) for an alt."""
         if alt == PRIMARY_ALT:
+            if self.primary_alternative is None:
+                return "", ""
             alt = self.primary_alternative
-        cfg = self.values["ALTERNATIVES"].get(alt)
-        if cfg is not None:
-            return cfg["url_prefix"] or "", cfg["url_suffix"] or ""
+
+        alt_cfg = self["ALTERNATIVES"].get(alt)
+        if alt_cfg is not None:
+            return alt_cfg["url_prefix"] or "", alt_cfg["url_suffix"] or ""
         return "", ""
 
     @cached_property
-    def primary_alternative_is_rooted(self):
+    def primary_alternative_is_rooted(self) -> bool:
         """`True` if the primary alternative is sitting at the root of
         the URL handler.
         """
@@ -240,39 +313,39 @@ class Config:
         if primary is None:
             return True
 
-        cfg = self.values["ALTERNATIVES"].get(primary)
-        if not (cfg["url_prefix"] or "").lstrip("/") and not (
-            cfg["url_suffix"] or ""
-        ).rstrip("/"):
+        alt_cfg = self["ALTERNATIVES"].get(primary)
+        if alt_cfg is None:
             return True
 
-        return False
+        url_prefix = (alt_cfg["url_prefix"] or "").lstrip("/")
+        url_suffix = (alt_cfg["url_suffix"] or "").rstrip("/")
+        return url_prefix == "" and url_suffix == ""
 
     @property
-    def primary_alternative(self):
+    def primary_alternative(self) -> str | None:
         """The identifier that acts as primary alternative."""
-        return self.values["PRIMARY_ALTERNATIVE"]
+        return self["PRIMARY_ALTERNATIVE"]
 
     @cached_property
-    def base_url(self):
+    def base_url(self) -> str | None:
         """The external base URL."""
-        url = self.values["PROJECT"].get("url")
+        url = self["PROJECT"].get("url")
         if url and urlsplit(url).scheme:
             return url.rstrip("/") + "/"
         return None
 
     @cached_property
-    def base_path(self):
+    def base_path(self) -> str:
         """The base path of the URL."""
-        url = self.values["PROJECT"].get("url")
+        url = self["PROJECT"].get("url")
         if url:
             return urlsplit(url).path.rstrip("/") + "/"
         return "/"
 
     @cached_property
-    def url_style(self):
+    def url_style(self) -> Literal["relative", "absolute", "external"]:
         """The intended URL style."""
-        style = self.values["PROJECT"].get("url_style")
+        style = self["PROJECT"].get("url_style")
         if style in ("relative", "absolute", "external"):
             return style
         return "relative"
