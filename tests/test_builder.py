@@ -362,9 +362,6 @@ def test_prune_all(builder):
 class AssertBuildsNothingReporter(NullReporter):
     """Reporter to collect source objects which are built during a build cycle."""
 
-    def __init__(self):
-        super().__init__(env=None)
-
     def start_artifact_build(self, is_current):
         assert is_current
 

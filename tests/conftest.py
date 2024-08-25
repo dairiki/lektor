@@ -285,7 +285,7 @@ def eval_expr(env):
 
 @pytest.fixture(scope="function")
 def reporter(request, env):
-    reporter = BufferReporter(env)
+    reporter = BufferReporter()
     reporter.push()
     request.addfinalizer(reporter.pop)
     return reporter

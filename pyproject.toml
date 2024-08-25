@@ -48,7 +48,7 @@ dependencies = [
     "python-slugify",
     "pytz; python_version<'3.9'",  # favor zoneinfo for python>=3.9
     "requests",
-    "typing-extensions>=3.10; python_version<'3.10'",
+    "typing-extensions>=4.6.0; python_version<'3.12'",
     "tzdata; python_version>='3.9' and sys_platform == 'win32'",
     "watchfiles>=0.12",
     "Werkzeug>=2.1.0",
@@ -209,7 +209,6 @@ module = [
     "lektor.metaformat",
     "lektor.i18n",
     "lektor.pluginsystem",
-    "lektor.reporter",
     "lektor.sourcesearch",
     "lektor.types.flow",
     "lektor.types.multi",
@@ -235,6 +234,7 @@ disallow_untyped_defs = true
 module = [
     "lektor.assets",
     "lektor.constants",
+    "lektor.reporter",
     "lektor.typing",
     "tests.test_packages",
 ]

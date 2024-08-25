@@ -216,8 +216,8 @@ class BuiltAssetsReporter(Reporter):
             self.built_assets.append(source_obj)
 
 
-def test_build_omits_shadowed_assets(theme_builder, theme_env):
-    with BuiltAssetsReporter(theme_env) as reporter:
+def test_build_omits_shadowed_assets(theme_builder):
+    with BuiltAssetsReporter() as reporter:
         theme_builder.build_all()
     asset_urls = [asset.url_path for asset in reporter.built_assets]
     assert len(asset_urls) > 0

@@ -58,13 +58,9 @@ class DependencyReporter(Reporter):
 
 
 @pytest.fixture
-def pntest_reporter(pntest_env):
-    reporter = DependencyReporter(pntest_env)
-    reporter.push()
-    try:
+def pntest_reporter():
+    with DependencyReporter() as reporter:
         yield reporter
-    finally:
-        reporter.pop()
 
 
 def test_prev_next_dependencies(tmp_path, pntest_env, pntest_reporter):

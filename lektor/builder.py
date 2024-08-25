@@ -15,7 +15,9 @@ from itertools import chain
 from typing import Any
 from typing import Callable
 from typing import IO
+from typing import Iterator
 from typing import NewType
+from typing import TYPE_CHECKING
 
 import click
 
@@ -30,6 +32,8 @@ from lektor.utils import fs_enc
 from lektor.utils import process_extra_flags
 from lektor.utils import prune_file_and_folder
 
+if TYPE_CHECKING:
+    from _typeshed import StrPath
 
 # Key use for a source file in the SQL build database
 #
@@ -143,11 +147,11 @@ class BuildState:
             return self.path_cache.get_file_info(filename)
         return None
 
-    def to_source_id(self, filename):
+    def to_source_id(self, filename: StrPath) -> SourceId:
         return self.path_cache.to_source_id(filename)
 
     @deprecated("renamed to to_source_id", version="3.4.0")
-    def to_source_filename(self, filename):
+    def to_source_filename(self, filename: StrPath) -> SourceId:
         return self.to_source_id(filename)
 
     def get_virtual_source_info(self, virtual_source_path, alt=None):
@@ -170,15 +174,15 @@ class BuildState:
             artifact_id.strip("/").replace("/", os.path.sep),
         )
 
-    def artifact_id_from_destination_filename(self, filename):
+    def artifact_id_from_destination_filename(self, filename: StrPath) -> ArtifactId:
         """Returns the artifact name for a destination filename."""
         dst = self.builder.destination_path
-        filename = os.path.join(dst, filename)
-        if filename.startswith(dst):
-            filename = filename[len(dst) :].lstrip(os.path.sep)
+        filename_ = os.path.join(dst, filename)
+        if filename_.startswith(dst):
+            filename_ = filename_[len(dst) :].lstrip(os.path.sep)
             if os.path.altsep:
-                filename = filename.lstrip(os.path.altsep)
-        return filename.replace(os.path.sep, "/")
+                filename_ = filename_.lstrip(os.path.altsep)
+        return ArtifactId(filename_.replace(os.path.sep, "/"))
 
     @deprecated("renamed to artifact_id_from_destination_filename", version="3.4.0")
     def artifact_name_from_destination_filename(self, filename):
@@ -383,7 +387,7 @@ class BuildState:
         finally:
             con.close()
 
-    def iter_existing_artifacts(self):
+    def iter_existing_artifacts(self) -> Iterator[ArtifactId]:
         """Scan output directory for artifacts.
 
         Returns an iterable of the artifact_ids for artifacts found.
@@ -400,7 +404,7 @@ class BuildState:
                 full_path = os.path.join(dst, dirpath, filename)
                 yield self.artifact_id_from_destination_filename(full_path)
 
-    def iter_unreferenced_artifacts(self, all=False):
+    def iter_unreferenced_artifacts(self, all: bool = False) -> Iterator[ArtifactId]:
         """Finds all unreferenced artifacts in the build folder and yields
         them.
         """
@@ -440,7 +444,7 @@ class BuildState:
         finally:
             con.close()
 
-    def iter_artifacts(self):
+    def iter_artifacts(self) -> Iterator[tuple[ArtifactId, FileInfo]]:
         """Iterates over all artifact and their file infos.."""
         con = self.connect_to_database()
         try:
@@ -1080,7 +1084,7 @@ class PathCache:
         return rv
 
     @deprecated("renamed to to_source_id", version="3.4.0")
-    def to_source_filename(self, filename):
+    def to_source_filename(self, filename: StrPath) -> SourceId:
         return self.to_source_id(filename)
 
     def get_file_info(self, filename):

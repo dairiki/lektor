@@ -52,7 +52,7 @@ def test_get_default_child_slug(datamodel, pad, expected_slug):
 @pytest.mark.parametrize("slug_format", ["{{ unknown.attr }}"])
 def test_get_default_child_slug_reports_failure(datamodel, pad):
     data = {"_id": "id"}
-    with BufferReporter(pad.env) as reporter:
+    with BufferReporter() as reporter:
         assert datamodel.get_default_child_slug(pad, data) == "temp-id"
     _, event_data = reporter.buffer[-1]
     message = event_data["message"]

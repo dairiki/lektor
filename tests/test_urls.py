@@ -420,7 +420,7 @@ def test_url_from_attachment(pad, path, expected):
 
 def test_url_from_attachment_issues_warning(pad):
     record = pad.get("/extra/hello.txt")
-    with BufferReporter(pad.env) as reporter:
+    with BufferReporter() as reporter:
         assert record.url_to("a") == "a"
     message = next(filter(None, (extra.get("message") for _, extra in reporter.buffer)))
     assert re.match(r"(?i)Suspicious use of relative URL", message)

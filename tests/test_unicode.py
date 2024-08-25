@@ -26,7 +26,7 @@ def test_unicode_project_folder(pad, builder):
 
 
 def test_unicode_attachment_filename(pad, builder):
-    with BufferReporter(builder.env) as reporter:
+    with BufferReporter() as reporter:
         prog, _ = builder.build(pad.root.attachments.first())
 
         failures = reporter.get_failures()
@@ -38,7 +38,7 @@ def test_unicode_attachment_filename(pad, builder):
 
 def test_bad_file_ignored(pad, builder):
     record = pad.root.children.first()
-    with BufferReporter(builder.env) as reporter:
+    with BufferReporter() as reporter:
         builder.build(record)
         failures = reporter.get_failures()
         assert len(failures) == 1
