@@ -10,7 +10,7 @@ from lektor.utils import cleanup_path
 from lektor.utils import cleanup_url_path
 
 # noreorder
-from conftest import restore_import_state  # pylint: disable=wrong-import-order
+from .conftest import restore_import_state  # pylint: disable=wrong-import-order
 
 
 @pytest.fixture(scope="module")

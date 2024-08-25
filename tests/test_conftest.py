@@ -4,7 +4,7 @@ from importlib import import_module
 from importlib import metadata
 
 # pylint: disable-next=wrong-import-order
-from conftest import restore_import_state  # noreorder
+from .conftest import restore_import_state  # noreorder
 
 
 def test_restore_import_state_restores_meta_path():

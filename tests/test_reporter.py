@@ -18,12 +18,14 @@ def dummy_build_func(*args):
 
 
 def test_describe_build_func():
-    assert describe_build_func(dummy_build_func) == "test_reporter.dummy_build_func"
+    assert (
+        describe_build_func(dummy_build_func) == "tests.test_reporter.dummy_build_func"
+    )
 
 
 def test_describe_build_func_describes_partial():
     build_func = partial(dummy_build_func, "dummy-arg")
-    assert describe_build_func(build_func) == "test_reporter.dummy_build_func"
+    assert describe_build_func(build_func) == "tests.test_reporter.dummy_build_func"
 
 
 def test_describe_build_func_BuildProgram(pad, build_state):

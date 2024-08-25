@@ -10,7 +10,7 @@ from lektor.db import Tree
 from lektor.project import Project
 
 # pylint: disable-next=wrong-import-order
-from conftest import restore_import_state  # noreorder
+from .conftest import restore_import_state  # noreorder
 
 
 @pytest.fixture(scope="session")
