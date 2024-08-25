@@ -116,20 +116,26 @@ def make_dummy_artifact(tmp_path):
 def test_send_html_for_editing(tmp_path, make_dummy_artifact):
     artifact = make_dummy_artifact()
     config = make_tooldrawer_config("EDIT_URL", artifact)
-    resp = serve._send_html_for_editing(artifact, config)
-    assert resp.mimetype == "text/html"
-    # pylint: disable=unsupported-membership-test
-    assert "EDIT_URL" in resp.get_data(True)
+    with serve._send_html_for_editing(artifact, config) as resp:
+        assert resp.mimetype == "text/html"
+        # pylint: disable=unsupported-membership-test
+        assert "EDIT_URL" in resp.get_data(True)
 
 
 @pytest.mark.usefixtures("dummy_app_context")
 def test_send_html_for_editing_etag_depends_on_edit_url(tmp_path, make_dummy_artifact):
     artifact = make_dummy_artifact()
-    resp1 = serve._send_html_for_editing(artifact, make_tooldrawer_config("EDIT_URL1"))
-    resp2 = serve._send_html_for_editing(artifact, make_tooldrawer_config("EDIT_URL2"))
-    assert resp2.headers["ETag"] != resp1.headers["ETag"]
-    resp3 = serve._send_html_for_editing(artifact, make_tooldrawer_config("EDIT_URL1"))
-    assert resp3.headers["ETag"] == resp1.headers["ETag"]
+    with serve._send_html_for_editing(
+        artifact, make_tooldrawer_config("EDIT_URL1")
+    ) as resp1:
+        with serve._send_html_for_editing(
+            artifact, make_tooldrawer_config("EDIT_URL2")
+        ) as resp2:
+            assert resp2.headers["ETag"] != resp1.headers["ETag"]
+        with serve._send_html_for_editing(
+            artifact, make_tooldrawer_config("EDIT_URL1")
+        ) as resp3:
+            assert resp3.headers["ETag"] == resp1.headers["ETag"]
 
 
 @pytest.mark.usefixtures("dummy_app_context")
@@ -138,17 +144,17 @@ def test_send_html_for_editing_etag_depends_on_artifact_name(
 ):
     artifact1 = make_dummy_artifact("test1")
     artifact2 = make_dummy_artifact("test2")
-    resp1 = serve._send_html_for_editing(
+    with serve._send_html_for_editing(
         artifact1, make_tooldrawer_config("EDIT_URL", artifact1)
-    )
-    resp2 = serve._send_html_for_editing(
-        artifact1, make_tooldrawer_config("EDIT_URL", artifact2)
-    )
-    assert resp2.headers["ETag"] != resp1.headers["ETag"]
-    resp3 = serve._send_html_for_editing(
-        artifact1, make_tooldrawer_config("EDIT_URL", artifact1)
-    )
-    assert resp3.headers["ETag"] == resp1.headers["ETag"]
+    ) as resp1:
+        with serve._send_html_for_editing(
+            artifact1, make_tooldrawer_config("EDIT_URL", artifact2)
+        ) as resp2:
+            assert resp2.headers["ETag"] != resp1.headers["ETag"]
+        with serve._send_html_for_editing(
+            artifact1, make_tooldrawer_config("EDIT_URL", artifact1)
+        ) as resp3:
+            assert resp3.headers["ETag"] == resp1.headers["ETag"]
 
 
 def test_send_html_for_editing_raises_404(tmp_path, make_dummy_artifact):
@@ -175,8 +181,8 @@ def test_checked_send_file(tmp_path, dummy_app):
     filename.write_text("content")
 
     with dummy_app.test_request_context():
-        resp = serve._checked_send_file(filename, "image/png")
-    assert resp.headers["Content-Type"] == "image/png"
+        with serve._checked_send_file(filename, "image/png") as resp:
+            assert resp.headers["Content-Type"] == "image/png"
 
 
 def test_checked_send_file_raises_404(tmp_path, dummy_app):
@@ -383,11 +389,13 @@ class TestArtifactServer:
             data={k: k.upper() for k in ("artifact", "exception", "traceback")},
         )
         with app.test_request_context("failing/"):
-            resp = a_s.handle_build_failure(failure, make_tooldrawer_config(edit_url))
-        assert resp.status_code == 200
-        assert "TRACEBACK" in resp.get_data(True)
-        if edit_url is not None:
-            assert edit_url in resp.get_data(True)
+            with a_s.handle_build_failure(
+                failure, make_tooldrawer_config(edit_url)
+            ) as resp:
+                assert resp.status_code == 200
+                assert "TRACEBACK" in resp.get_data(True)
+                if edit_url is not None:
+                    assert edit_url in resp.get_data(True)
 
     @pytest.mark.parametrize(
         "path, kw, expect",
@@ -417,9 +425,9 @@ class TestArtifactServer:
     )
     def test_serve_artifact_adds_slash(self, a_s, app, url_path, location):
         with app.test_request_context(f"/{url_path}"):
-            resp = a_s.serve_artifact(url_path)
-        assert resp.status_code in (301, 308)
-        assert resp.location == location
+            with a_s.serve_artifact(url_path) as resp:
+                assert resp.status_code in (301, 308)
+                assert resp.location == location
 
     @pytest.mark.parametrize(
         "url_path, mimetype, is_editable",
@@ -446,10 +454,12 @@ class TestArtifactServer:
         self, a_s, app, url_path, mimetype, is_editable
     ):
         with app.test_request_context(f"/{url_path}"):
-            resp = a_s.serve_artifact(url_path)
-            assert resp.status_code == 200
-            assert resp.mimetype == mimetype
-            data = b"".join(resp.get_app_iter(flask.request.environ)).decode("utf-8")
+            with a_s.serve_artifact(url_path) as resp:
+                assert resp.status_code == 200
+                assert resp.mimetype == mimetype
+                data = b"".join(resp.get_app_iter(flask.request.environ)).decode(
+                    "utf-8"
+                )
         assert ("/ADMIN/EDIT?" in data) == is_editable
 
     @pytest.mark.parametrize(
@@ -473,18 +483,18 @@ class TestArtifactServer:
 
 def test_serve_artifact(app):
     with app.test_request_context("/static/demo.css"):
-        resp = serve.serve_artifact("static/demo.css")
-        assert resp.status_code == 200
-        assert resp.mimetype == "text/css"
+        with serve.serve_artifact("static/demo.css") as resp:
+            assert resp.status_code == 200
+            assert resp.mimetype == "text/css"
 
 
 def test_serve_file(output_path, app):
     filename = output_path / "test.txt"
     filename.write_text("content")
     with app.test_request_context("/test.txt"):
-        resp = serve.serve_file("test.txt")
-        content = b"".join(resp.get_app_iter(flask.request.environ))
-    assert resp.mimetype == "text/plain"
+        with serve.serve_file("test.txt") as resp:
+            content = b"".join(resp.get_app_iter(flask.request.environ))
+            assert resp.mimetype == "text/plain"
     assert content == b"content"
 
 
@@ -511,14 +521,14 @@ def test_serve_file_dir_handling(output_path, app, index_html):
     filename.write_text("index")
 
     with app.test_request_context("/adir"):
-        resp = serve.serve_file("adir")
-    assert resp.status_code in (301, 308)
-    assert resp.location == "adir/"
+        with serve.serve_file("adir") as resp:
+            assert resp.status_code in (301, 308)
+            assert resp.location == "adir/"
 
     with app.test_request_context("/adir/"):
-        resp = serve.serve_file("adir/")
-        content = b"".join(resp.get_app_iter(flask.request.environ))
-    assert resp.status_code == 200
+        with serve.serve_file("adir/") as resp:
+            content = b"".join(resp.get_app_iter(flask.request.environ))
+            assert resp.status_code == 200
     assert content == b"index"
 
 
@@ -559,19 +569,19 @@ def test_serve_file_raises_404(output_path, app, path):
 )
 def test_serve(app, path, status, mimetype, content):
     with app.test_client() as c:
-        resp = c.get(path)
-        assert resp.status_code == status
-        assert resp.mimetype == mimetype
-        assert content in resp.get_data(True)
+        with c.get(path) as resp:
+            assert resp.status_code == status
+            assert resp.mimetype == mimetype
+            assert content in resp.get_data(True)
 
 
 def test_serve_from_file(app, output_path):
     filename = output_path / "sub-artifact.txt"
     filename.write_text("sub-artifact")
     with app.test_client() as c:
-        resp = c.get("/sub-artifact.txt")
-        assert resp.status_code == 200
-        assert resp.mimetype == "text/plain"
+        with c.get("/sub-artifact.txt") as resp:
+            assert resp.status_code == 200
+            assert resp.mimetype == "text/plain"
 
 
 @pytest.mark.parametrize(
@@ -597,12 +607,12 @@ def test_serve_add_slash_redirect_integration(
 ):
     output_path.joinpath("adir/bdir").mkdir(parents=True)
     with app.test_client() as c:
-        resp = c.get(path_info, base_url=base_url)
-        assert resp.status_code in (301, 308)
-        # Be careful to accept either absolute or relative URLs in resp.location
-        # See https://httpwg.org/specs/rfc7231.html#header.location
-        request_url = urljoin(base_url, path_info.lstrip("/"))
-        assert urljoin(request_url, resp.location) == location
+        with c.get(path_info, base_url=base_url) as resp:
+            assert resp.status_code in (301, 308)
+            # Be careful to accept either absolute or relative URLs in resp.location
+            # See https://httpwg.org/specs/rfc7231.html#header.location
+            request_url = urljoin(base_url, path_info.lstrip("/"))
+            assert urljoin(request_url, resp.location) == location
 
 
 @pytest.fixture
@@ -620,7 +630,7 @@ def test_serve_custom_404(scratch_app, scratch_project_data):
     custom_404.write_text("custom 404")
 
     with scratch_app.test_client() as c:
-        resp = c.get("/missing.txt")
-        assert resp.status_code == 404
-        assert resp.mimetype == "text/html"
-        assert resp.get_data(True) == "custom 404"
+        with c.get("/missing.txt") as resp:
+            assert resp.status_code == 404
+            assert resp.mimetype == "text/html"
+            assert resp.get_data(True) == "custom 404"

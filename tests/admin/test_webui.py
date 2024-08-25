@@ -55,10 +55,10 @@ def app_static_dummy_txt(static_folder):
 )
 @pytest.mark.usefixtures("app_static_dummy_txt")
 def test_get(test_client, url, mimetype, is_editable):
-    resp = test_client.get(url)
-    assert resp.status_code == 200
-    assert resp.mimetype == mimetype
-    data = b"".join(resp.get_app_iter(flask.request.environ)).decode("utf-8")
+    with test_client.get(url) as resp:
+        assert resp.status_code == 200
+        assert resp.mimetype == mimetype
+        data = b"".join(resp.get_app_iter(flask.request.environ)).decode("utf-8")
     assert ("/admin/edit?" in data) == is_editable
 
 
@@ -69,9 +69,9 @@ def test_get_admin_does_something_useful(test_client, mocker):
         "lektor.admin.modules.dash.render_template",
         return_value="RENDERED",
     )
-    resp = test_client.get("/admin", follow_redirects=True)
-    assert resp.status_code == 200
-    assert resp.get_data(as_text=True) == render_template.return_value
+    with test_client.get("/admin", follow_redirects=True) as resp:
+        assert resp.status_code == 200
+        assert resp.get_data(as_text=True) == render_template.return_value
     assert render_template.mock_calls == [
         mocker.call("dash.html", lektor_config=mocker.ANY),
     ]
