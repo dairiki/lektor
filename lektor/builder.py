@@ -13,8 +13,10 @@ import threading
 import warnings
 import weakref
 from collections import deque
+from collections.abc import Hashable
 from collections.abc import Sized
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from contextlib import suppress
 from dataclasses import dataclass
 from dataclasses import field
@@ -23,6 +25,7 @@ from itertools import chain
 from pathlib import Path
 from types import TracebackType
 from typing import Any
+from typing import AsyncIterator
 from typing import Callable
 from typing import cast
 from typing import Collection
@@ -1392,11 +1395,50 @@ class BuildProgramBuilder:
             self.build_state.write_source_info(source_info)
 
 
+class KeyedLock:
+    """A lock that can be used to "lock" a particular index or key.
+
+    This lock is based on asyncio synchronization primatives. It is not thread-safe.
+
+    Usage:
+
+        with keyed_lock(key):
+            # do stuff, assured that no other task has acquired the lock with the same
+            # ``key``.
+            ...
+    """
+
+    def __init__(self) -> None:
+        self.locked_keys: set[Hashable] = set()
+        self.cond = asyncio.Condition()
+
+    @asynccontextmanager
+    async def __call__(self, key: Hashable) -> AsyncIterator[None]:
+        locked_keys = self.locked_keys
+        cond = self.cond
+
+        def is_unlocked() -> bool:
+            return key not in locked_keys
+
+        async with cond:
+            await cond.wait_for(is_unlocked)
+            locked_keys.add(key)
+
+        try:
+            yield
+        finally:
+            async with cond:
+                locked_keys.remove(key)
+                cond.notify_all()
+
+
 @dataclass(frozen=True)
 class ThreadedBuildProgramBuilder(BuildProgramBuilder):
     """How to run a BuildProgram to generate its artifacts and sub-artifacts."""
 
     executor: ThreadPoolExecutor
+
+    _artifact_lock: KeyedLock = field(default_factory=KeyedLock)
 
     async def abuild(self, build_program: BuildProgram[SourceObject]) -> BuildResult:
         build_artifact_in_thread = self.build_artifact_in_thread
@@ -1404,7 +1446,7 @@ class ThreadedBuildProgramBuilder(BuildProgramBuilder):
         # Build the top-level artifacts (usually there is at most one of those)
         build_func = build_program.build_artifact
         tasks = {
-            build_artifact_in_thread(artifact, build_func)
+            asyncio.create_task(build_artifact_in_thread(artifact, build_func))
             for artifact in build_program.get_artifacts()
         }
 
@@ -1414,7 +1456,7 @@ class ThreadedBuildProgramBuilder(BuildProgramBuilder):
             for task in done:
                 result = task.result()
                 tasks.update(
-                    build_artifact_in_thread(artifact, build_func)
+                    asyncio.create_task(build_artifact_in_thread(artifact, build_func))
                     for artifact, build_func in result.sub_artifacts
                 )
                 results.append(result)
@@ -1424,24 +1466,24 @@ class ThreadedBuildProgramBuilder(BuildProgramBuilder):
 
         return BuildResult(build_program, self.build_state)
 
-    def build_artifact_in_thread(
+    async def build_artifact_in_thread(
         self, artifact: Artifact, build_func: ArtifactBuildFunc
-    ) -> asyncio.Future[BuildArtifactResult]:
+    ) -> BuildArtifactResult:
         """Schedule build_artifact to be executed in our ThreadPoolExecutor."""
         loop = asyncio.get_running_loop()
 
-        # FIXME: Make sure not to build the same artifact
+        # Make sure not to build the same artifact
         # in two threads at the same time.
+        async with self._artifact_lock(artifact.artifact_id):
+            # Set up a copy of our current reporter in the thread.
+            # (The reporter stack is thread-local.)
+            reporter_copy = reporter.copy()
 
-        # Set up a copy of our current reporter in the thread.
-        # (The reporter stack is thread-local.)
-        reporter_copy = reporter.copy()
+            def target() -> BuildArtifactResult:
+                with reporter_copy:
+                    return self.build_artifact(artifact, build_func)
 
-        def target() -> BuildArtifactResult:
-            with reporter_copy:
-                return self.build_artifact(artifact, build_func)
-
-        return loop.run_in_executor(self.executor, target)
+            return await loop.run_in_executor(self.executor, target)
 
 
 class BuildStrategy(ContextManager["BuildStrategy"]):
