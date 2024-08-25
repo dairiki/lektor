@@ -13,7 +13,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import chain
 from typing import Any
+from typing import Callable
 from typing import IO
+from typing import NewType
 
 import click
 
@@ -26,6 +28,19 @@ from lektor.sourcesearch import find_files
 from lektor.utils import fs_enc
 from lektor.utils import process_extra_flags
 from lektor.utils import prune_file_and_folder
+
+
+# Key use for a source file in the SQL build database
+#
+# This is the path to a source file relative to the environments root_path,
+# with path separators converted to forward slashes.
+SourceId = NewType("SourceId", str)
+
+# Key used for an artifact in the SQL build database.
+#
+# This is the path to the artifact (output file) relative to the build destination path,
+# with path separators converted to forward slashes.
+ArtifactId = NewType("ArtifactId", str)
 
 
 def create_tables(con):
@@ -657,6 +672,9 @@ artifacts_row = namedtuple(
         "is_primary_source",
     ],
 )
+
+
+ArtifactBuildFunc = Callable[["Artifact"], None]
 
 
 class Artifact:

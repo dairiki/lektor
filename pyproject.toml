@@ -224,6 +224,7 @@ ignore_errors = true
 # modules that are not.
 module = [
     "lektor.admin.*",
+    "lektor.build_programs",
     "lektor.devserver",
     "lektor.imagetools.*",
 ]
