@@ -1,3 +1,28 @@
+## TODOs
+
+### lektor.builder, multithreading
+
+- [Done] Don't build a source object more than once per build_all
+- [Done] Maybe don't even attempt to build a given artifact more than once per build_all.
+- I'm not maxing out CPU usage. Figure out what needs to change for that to happened.
+
+- The SqliteConnectionPool needs attention.
+  - One connection per asyncio task, as well as one per thread?
+  - Make sure the connections are being closed properly on thread/task termination
+
+### Type annotations
+
+- rebase them back earlier
+- make a PR
+
+### Docstrings
+
+Improve docstrings on the various parts of the build system.
+
+Note lifetime is the build of a single artifact.
+
+====
+
 ## Free-Threading Issues
 
 ### Places to check/fix thread safety
@@ -128,6 +153,7 @@ multi-threaded builds.
   `ArtifactTransaction._referenced_virtual_sources`.
 - Added a `disable_dependency_tracking()` context manager to temporarily
   disable dependency tracking. (This was copied from `lektorlib`.)
+- Removed `Context.exc_info`. Now we just raise the exception and catch it where desired.
 
 ### db.Record
 
@@ -137,52 +163,3 @@ multi-threaded builds.
 ### lektor.environment
 
 - Deleted `lektor.environment.any_fnmatch`. (inlined)
-
-## BuildState functionality should be split up
-
-However note that BuildState is part of the "before-build", "after-build" plugin API,
-so we will need to provide a proxy or some such for that?
-(Plugins that appear to use build_state: lektor-minify, lektor-diazotheme, lektor-amp, lektor-groupby.)
-
-- Database actions
-  (Need one connection per thread/context. Lifetime is arbitrary (data long-lived on disk.))
-
-- Project source path handling and caching (PathCache)
-  (Lifetime: one upper-level Builder method call, e.g. buildall)
-
-- State of build. Current lifetime of BuildState is the building of
-  one source record (i.e. the execution of one BuildFunction). The
-  BuildState appears to be used to track number of successful and
-  failed artifact builds within that process.
-
-  (The need for this function of the BuildState could probably be
-  eliminated or rolled into BuildProgram.build() or something.)
-
-## Context
-
-Note lifetime is the build of a single artifact.
-
-### [DONE] Don't store \_exc_info on context.
-
-Just keep raising exception, catching it where needed to mark failiure.
-
-Perhaps raise a custom exception.
-
-    raise BuildFailed(...) from exc
-
-### [DONE] Refactor the BuildProgram API
-
-Once build_func is part of Artifact, we can replace the
-`produce_artifacts`, `declare_artifact`, and `build_artifact` API
-methods with just `get_artifacts`:
-
-    def get_artifacts(self) -> Iterable[Artifact]: ...
-    """Return an iterable of artifacts to be build for this record.
-
-    Note that each artifact, when built, may produce additional sub-artifacts which
-    also are to be built as part of the build process for this record.
-    """
-
-## Comments
-
-Improve docstrings on the various parts of the build system.
