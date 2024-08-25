@@ -5,6 +5,7 @@ import os
 import sys
 import warnings
 from collections.abc import ValuesView
+from contextlib import contextmanager
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -251,3 +252,15 @@ class PluginController:
                         stacklevel=2,
                     )
         return rv
+
+    @contextmanager
+    def emit_for_context(self, event_base: str, **kwargs: Any) -> Iterator[None]:
+        """Invoke a pair of "before-*" and "after-*" hooks around a context.
+
+        Any ``kwargs`` are passed to the hook methods.
+        """
+        self.emit(f"before-{event_base}", **kwargs)
+        try:
+            yield
+        finally:
+            self.emit(f"after-{event_base}", **kwargs)

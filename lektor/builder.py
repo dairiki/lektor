@@ -1337,49 +1337,68 @@ class BuildResult(NamedTuple):
 
 
 @dataclass
-class BuildProgramBuildStrategy:
-    """How to run a BuildProgram to generate its artifacts and sub-artifacts."""
+class BuildProgramBuilder:
+    """How to run a BuildProgram to generate its artifacts and sub-artifacts.
+
+    Usage:
+
+        BuildProgramBuilder(builder, build_state).build(build_program)
+    """
 
     builder: Builder
     build_state: BuildState
-    build_program: BuildProgram[SourceObject]
 
-    executor: ThreadPoolExecutor | None = None
-
-    _updated: bool = field(default=False, init=False)
-
-    @property
-    def env(self) -> Environment:
-        return self.builder.env
-
-    def __enter__(self) -> Self:
-        self._before_build()
-        self._updated = False
-        return self
-
-    def __exit__(self, _tp: Any, _ex: Any, _tb: Any) -> None:
-        self._after_build(updated=self._updated)
-
-    def run(self) -> BuildResult:
-        build_program = self.build_program
-
+    def build(self, build_program: BuildProgram[SourceObject]) -> BuildResult:
         # Build the top-level artifacts (usually there is at most one of those)
         build_func = build_program.build_artifact
         build_queue = [
             (artifact, build_func) for artifact in build_program.get_artifacts()
         ]
 
+        results = []
         while build_queue:
             artifact, build_func = build_queue.pop()
-            sub_artifacts = self.build_artifact(artifact, build_func)
+            result = self.build_artifact(artifact, build_func)
             build_queue.extend(
-                (artifact, build_func) for artifact, build_func in sub_artifacts
+                (artifact, build_func) for artifact, build_func in result.sub_artifacts
             )
+            results.append(result)
+
+        if any(result.updated for result in results):
+            self.update_source_info(build_program)
 
         return BuildResult(build_program, self.build_state)
 
-    async def arun(self) -> BuildResult:
-        build_program = self.build_program
+    def build_artifact(
+        self, artifact: Artifact, build_func: ArtifactBuildFunc
+    ) -> BuildArtifactResult:
+        """Build an artifact, if necessary.
+
+        If the artifact does not exist, or is out-of-date with respect to its sources,
+        call ``build_func`` to actually build it.
+
+        """
+        build_state = self.build_state
+
+        is_current = build_state.check_artifact_is_current(artifact)
+        with reporter.build_artifact(artifact, build_func, is_current=is_current):
+            if is_current:
+                return BuildArtifactResult(updated=False)
+
+            return build_artifact(build_state, artifact, build_func)
+
+    def update_source_info(self, build_program: BuildProgram[SourceObject]) -> None:
+        if (source_info := build_program.describe_source_record()) is not None:
+            self.build_state.write_source_info(source_info)
+
+
+@dataclass
+class ThreadedBuildProgramBuilder(BuildProgramBuilder):
+    """How to run a BuildProgram to generate its artifacts and sub-artifacts."""
+
+    executor: ThreadPoolExecutor
+
+    async def abuild(self, build_program: BuildProgram[SourceObject]) -> BuildResult:
         build_artifact_in_thread = self.build_artifact_in_thread
 
         # Build the top-level artifacts (usually there is at most one of those)
@@ -1389,92 +1408,36 @@ class BuildProgramBuildStrategy:
             for artifact in build_program.get_artifacts()
         }
 
+        results = []
         while tasks:
             done, tasks = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
-                sub_artifacts = task.result()
+                result = task.result()
                 tasks.update(
                     build_artifact_in_thread(artifact, build_func)
-                    for artifact, build_func in sub_artifacts
+                    for artifact, build_func in result.sub_artifacts
                 )
+                results.append(result)
+
+        if any(result.updated for result in results):
+            self.update_source_info(build_program)
 
         return BuildResult(build_program, self.build_state)
 
-    def _before_build(self) -> None:
-        build_program = self.build_program
-
-        self.env.plugin_controller.emit(
-            "before-build",
-            builder=self.builder,
-            build_state=self.build_state,
-            source=build_program.source,
-            prog=build_program,
-        )
-
-    def _after_build(self, *, updated: bool) -> None:
-        build_program = self.build_program
-
-        if updated:
-            if (source_info := build_program.describe_source_record()) is not None:
-                self.build_state.write_source_info(source_info)
-
-        self.env.plugin_controller.emit(
-            "after-build",
-            builder=self.builder,
-            build_state=self.build_state,
-            source=build_program.source,
-            prog=build_program,
-        )
-
-    def build_artifact(
-        self, artifact: Artifact, build_func: ArtifactBuildFunc
-    ) -> Collection[SubArtifact]:
-        """Build an artifact, if necessary.
-
-        If the artifact does not exist, or is out-of-date with respect to its sources,
-        call ``build_func`` to actually build it.
-
-        Returns any sub-artifacts generated during the build.
-
-        """
-        build_state = self.build_state
-
-        is_current = build_state.check_artifact_is_current(artifact)
-        with reporter.build_artifact(artifact, build_func, is_current=is_current):
-            if is_current:
-                return ()
-
-            result = build_artifact(build_state, artifact, build_func)
-
-            if result.updated:
-                self._updated = True
-            return result.sub_artifacts
-
-    async def _async_build_artifact(
-        self, artifact: Artifact, build_func: ArtifactBuildFunc
-    ) -> Collection[SubArtifact]:
-        return self.build_artifact(artifact, build_func)
-
     def build_artifact_in_thread(
         self, artifact: Artifact, build_func: ArtifactBuildFunc
-    ) -> asyncio.Future[Collection[SubArtifact]]:
-        """Schedule build_artifact to be executed in our ThreadPoolExecutor.
-
-        Returns an asyncio.Future object.
-
-        If no executor is configured, fallback to calling in main thread.
-        return self._run_in_executor(self.build_artifact, artifact, build_func)
-        """
-        if self.executor is None:
-            return asyncio.create_task(self._async_build_artifact(artifact, build_func))
-
+    ) -> asyncio.Future[BuildArtifactResult]:
+        """Schedule build_artifact to be executed in our ThreadPoolExecutor."""
         loop = asyncio.get_running_loop()
+
+        # FIXME: Make sure not to build the same artifact
+        # in two threads at the same time.
 
         # Set up a copy of our current reporter in the thread.
         # (The reporter stack is thread-local.)
         reporter_copy = reporter.copy()
 
-        def target() -> Collection[SubArtifact]:
+        def target() -> BuildArtifactResult:
             with reporter_copy:
                 return self.build_artifact(artifact, build_func)
 
@@ -1482,15 +1445,63 @@ class BuildProgramBuildStrategy:
 
 
 class BuildStrategy(ContextManager["BuildStrategy"]):
+    def __init__(self, builder: Builder):
+        self.builder = builder
+
+    def close(self) -> None:
+        pass
+
+    def __exit__(self, _typ: Any, _ex: Any, _tb: Any) -> None:
+        self.close()
+
+    def build(self, build_program: BuildProgram[SourceObject]) -> BuildResult:
+        """Build a single BuildProgram."""
+        builder = self.builder
+        plugin_controller = builder.env.plugin_controller
+        build_state = build_program.build_state
+
+        strategy = BuildProgramBuilder(builder, build_state)
+
+        with reporter.process_source(build_program.source):
+            with plugin_controller.emit_for_context(
+                "build",
+                builder=builder,
+                build_state=build_program.build_state,
+                source=build_program.source,
+                prog=build_program,
+            ):
+                return strategy.build(build_program)
+
+    def build_all(self, build_programs: Iterable[BuildProgram[SourceObject]]) -> int:
+        builder = self.builder
+        plugin_controller = builder.env.plugin_controller
+
+        with reporter.build("build", builder):
+            with plugin_controller.emit_for_context("build-all", builder=builder):
+                failures = self._build_all(build_programs)
+            if failures:
+                reporter.report_build_all_failure(failures)
+        return failures
+
+    def _build_all(self, build_programs: Iterable[BuildProgram[SourceObject]]) -> int:
+        results = [self.build(build_prog) for build_prog in build_programs]
+        failures = sum(result.failures for result in results)
+        return failures
+
+
+class ConcurrencyConfig:
+    # Maximum number of workers in the thread pool
+    max_workers: int
+
+    # Maximum number of source objects allowed to be processed concurrently.
+    max_simultaneous_builds: int
+
     def __init__(
         self,
-        builder: Builder,
         *,
         max_workers: int | None = None,
         max_simultaneous_builds: int | None = None,
     ):
-        self.builder = builder
-
         if max_workers is None:
             cpu_count = os.cpu_count()
             if cpu_count is not None:
@@ -1498,82 +1509,50 @@ class BuildStrategy(ContextManager["BuildStrategy"]):
             else:
                 max_workers = 0
 
-        max_workers = 0
-
-        if max_workers < 2:
-            self._event_loop = None
+        if max_simultaneous_builds is None:
+            max_simultaneous_builds = max_workers
         else:
-            self._event_loop = asyncio.new_event_loop()
-            self._executor = ThreadPoolExecutor(max_workers=max_workers)
-            if max_simultaneous_builds is None:
-                max_simultaneous_builds = max_workers
-            else:
-                max_simultaneous_builds = max(1, max_simultaneous_builds)
-            self._semaphore = asyncio.Semaphore(max_simultaneous_builds)
+            max_simultaneous_builds = max(1, max_simultaneous_builds)
+
+        self.max_workers = max_workers
+        self.max_simultaneous_builds = max_simultaneous_builds
+
+
+class ConcurrentBuildStrategy(BuildStrategy):
+    def __init__(
+        self,
+        builder: Builder,
+        concurrency_config: ConcurrencyConfig,
+    ):
+        super().__init__(builder=builder)
+
+        self._event_loop = asyncio.new_event_loop()
+        self._executor = ThreadPoolExecutor(max_workers=concurrency_config.max_workers)
+        self._semaphore = asyncio.Semaphore(concurrency_config.max_simultaneous_builds)
 
     def close(self) -> None:
         loop = self._event_loop
-        if loop is not None:
-            self._event_loop = None
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            loop.close()
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.close()
+        super().close()
 
-    def __exit__(self, _typ: Any, _ex: Any, _tb: Any) -> None:
-        self.close()
-
-    def build(
-        self,
-        build_program: BuildProgram[SourceObject],
-    ) -> BuildResult:
-        """Build a single BuildProgram."""
-        if self._event_loop is None:
-            return self._build(build_program)
+    def build(self, build_program: BuildProgram[SourceObject]) -> BuildResult:
         return self._event_loop.run_until_complete(self._abuild(build_program))
 
-    def build_all(self, build_programs: Iterable[BuildProgram[SourceObject]]) -> int:
-        builder = self.builder
-        plugin_controller = builder.env.plugin_controller
-
-        with reporter.build("build", builder):
-            plugin_controller.emit("before-build-all", builder=builder)
-            if self._event_loop is None:
-                failures = self._build_all(build_programs)
-            else:
-                failures = self._event_loop.run_until_complete(
-                    self._abuild_all(build_programs)
-                )
-            plugin_controller.emit("after-build-all", builder=builder)
-            if failures:
-                reporter.report_build_all_failure(failures)
-        return failures
-
-    def _build(self, build_program: BuildProgram[SourceObject]) -> BuildResult:
-        with reporter.process_source(build_program.source):
-            with BuildProgramBuildStrategy(
-                builder=self.builder,
-                build_state=build_program.build_state,
-                build_program=build_program,
-            ) as strategy:
-                return strategy.run()
-
     async def _abuild(self, build_program: BuildProgram[SourceObject]) -> BuildResult:
+        strategy = ThreadedBuildProgramBuilder(
+            self.builder, build_program.build_state, self._executor
+        )
+
         async with self._semaphore:
             # Since we're async, each build gets its own copy of the reporter
             # (to prevent indentation staircase)
             with reporter.copy():
                 with reporter.process_source(build_program.source):
-                    with BuildProgramBuildStrategy(
-                        builder=self.builder,
-                        build_state=build_program.build_state,
-                        build_program=build_program,
-                        executor=self._executor,
-                    ) as strategy:
-                        return await strategy.arun()
+                    return await strategy.abuild(build_program)
 
     def _build_all(self, build_programs: Iterable[BuildProgram[SourceObject]]) -> int:
-        results = [self._build(build_prog) for build_prog in build_programs]
-        failures = sum(result.failures for result in results)
-        return failures
+        return self._event_loop.run_until_complete(self._abuild_all(build_programs))
 
     async def _abuild_all(
         self, build_programs: Iterable[BuildProgram[SourceObject]]
@@ -1590,6 +1569,7 @@ class Builder:
         destination_path: StrPath,
         buildstate_path: StrPath | None = None,
         extra_flags: dict[str, str] | Iterable[str] | None = None,
+        concurrency_config: ConcurrencyConfig | None = None,
     ):
         self.extra_flags = process_extra_flags(extra_flags)
         self.pad = pad
@@ -1622,6 +1602,16 @@ class Builder:
 
         self.build_db = SqliteConnectionPool(self.buildstate_database_filename)
         self.build_db.executescript(_BUILDSTATE_SCHEMA)  # initialize schema
+
+        self.concurrency_config = concurrency_config
+
+    def _get_build_strategy(self) -> BuildStrategy:
+        concurrency_config = self.concurrency_config
+        if concurrency_config is None:
+            return BuildStrategy(builder=self)
+        return ConcurrentBuildStrategy(
+            builder=self, concurrency_config=concurrency_config
+        )
 
     @property
     def env(self) -> Environment:
@@ -1664,6 +1654,8 @@ class Builder:
         """This cleans up data left in the build folder that does not
         correspond to known artifacts.
         """
+        plugin_controller = self.env.plugin_controller
+
         build_state = self.new_build_state()
         if all:
             activity = "clean"
@@ -1673,18 +1665,16 @@ class Builder:
             iter_prunable_artifacts = build_state.iter_unreferenced_artifacts
 
         with reporter.build(activity, self):
-            self.env.plugin_controller.emit("before-prune", builder=self, all=all)
+            with plugin_controller.emit_for_context("prune", builder=self, all=all):
+                for aft in iter_prunable_artifacts():
+                    reporter.report_pruned_artifact(aft)
+                    filename = build_state.get_destination_filename(aft)
+                    prune_file_and_folder(filename, self.destination_path)
+                    build_state.remove_artifact(aft)
 
-            for aft in iter_prunable_artifacts():
-                reporter.report_pruned_artifact(aft)
-                filename = build_state.get_destination_filename(aft)
-                prune_file_and_folder(filename, self.destination_path)
-                build_state.remove_artifact(aft)
-
-            build_state.prune_source_infos()
-            if all:
-                build_state.vacuum()
-            self.env.plugin_controller.emit("after-prune", builder=self, all=all)
+                build_state.prune_source_infos()
+                if all:
+                    build_state.vacuum()
 
     def _get_build_program(
         self, source: _SourceObj, path_cache: PathCache | None = None
@@ -1723,15 +1713,15 @@ class Builder:
     ) -> BuildResult:  # FIXME: change return type to None?
         """Given a source object, builds it."""
         build_prog = self._get_build_program(source, path_cache)
-        with BuildStrategy(builder=self) as strat:
-            return strat.build(build_prog)
+        with self._get_build_strategy() as build_strategy:
+            return build_strategy.build(build_prog)
 
     def build_all(self) -> int:
         """Builds the entire tree.  Returns the number of failures."""
         # return asyncio.run(self._async_build_all())
         iter_build_progs = self._iter_all_build_programs()
-        with BuildStrategy(builder=self) as strat:
-            return strat.build_all(iter_build_progs)
+        with self._get_build_strategy() as build_strategy:
+            return build_strategy.build_all(iter_build_progs)
 
     def update_all_source_infos(self) -> None:
         """Fast way to update all source infos without having to build

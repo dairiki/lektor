@@ -96,6 +96,14 @@ def cli(ctx, project=None, language=None):
     "`.lektor` inside the output path.",
 )
 @extraflag
+@click.option(
+    "-p",
+    "--parallel",
+    is_flag=True,
+    help="Run the build using multiple threads. Due to python's GIL, this "
+    "probably only helps speed things up if you are running a free-threaded "
+    "non-GIL version of Python.",
+)
 @pass_context
 def build_cmd(
     ctx,
@@ -106,6 +114,7 @@ def build_cmd(
     source_info_only,
     buildstate_path,
     extra_flags,
+    parallel,
 ):
     """Builds the entire project into the final artifacts.
 
@@ -125,12 +134,15 @@ def build_cmd(
     used by external scripts to only deploy on successful build for instance.
     """
     from lektor.builder import Builder
+    from lektor.builder import ConcurrencyConfig
     from lektor.reporter import CliReporter
 
     if output_path is None:
         output_path = ctx.get_default_output_path()
 
     ctx.load_plugins(extra_flags=extra_flags)
+
+    concurrency_config = ConcurrencyConfig() if parallel else None
 
     env = ctx.get_env()
 
@@ -151,6 +163,7 @@ def build_cmd(
                 output_path,
                 buildstate_path=buildstate_path,
                 extra_flags=extra_flags,
+                concurrency_config=concurrency_config,
             )
             if source_info_only:
                 builder.update_all_source_infos()
