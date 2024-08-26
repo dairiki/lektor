@@ -7,7 +7,7 @@ from typing import ClassVar
 from typing import Sequence
 from typing import TypedDict
 
-import mistune.util
+import mistune.util  # type: ignore[import-untyped]
 
 from lektor.markdown.controller import MarkdownController
 from lektor.markdown.controller import RendererHelper
@@ -43,7 +43,7 @@ class ImprovedRenderer(mistune.HTMLRenderer):  # type: ignore[misc]
 class ParserConfigDict(TypedDict, total=False):
     block: mistune.BlockParser
     inline: mistune.InlineParser
-    plugins: Sequence[Callable[[mistune.Markdown], None]]
+    plugins: Sequence[MistunePlugin | str]
 
 
 MistunePlugin = Callable[[mistune.Markdown], None]

@@ -6,6 +6,7 @@ import sys
 import warnings
 from importlib import metadata
 from pathlib import Path
+from typing import Any
 from weakref import ref as weakref
 
 from inifile import IniFile
@@ -194,7 +195,7 @@ class PluginController:
         # XXX: sort?
         return self.env.plugins.values()
 
-    def emit(self, event, **kwargs):
+    def emit(self, event: str, **kwargs: Any) -> dict[str, Any]:
         """Invoke event hook for all plugins that support it.
 
         Any ``kwargs`` are passed to the hook methods.

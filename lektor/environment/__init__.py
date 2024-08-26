@@ -296,6 +296,7 @@ class Environment:
 
         self.virtualpathresolver("siblings")(siblings_resolver)
 
+    plugin_controller: PluginController
     root_path: str
     build_programs: list[tuple[type[SourceObject], type[BuildProgram[SourceObject]]]]
     special_file_assets: dict[str, type[Asset]]

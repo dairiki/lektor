@@ -1,10 +1,10 @@
 """MarkdownController implementation for mistune 0.x"""
+from __future__ import annotations
+
 import threading
 from typing import ClassVar
-from typing import List
-from typing import Optional
 
-import mistune  # type: ignore[import]
+import mistune  # type: ignore[import-untyped]
 
 from lektor.markdown.controller import MarkdownController
 from lektor.markdown.controller import Meta  # FIXME: move this?
@@ -23,23 +23,23 @@ class ImprovedRenderer(
 ):
     lektor: ClassVar = RendererHelper()
 
-    @property  # type: ignore[misc] # https://github.com/python/mypy/issues/1362
+    @property
     @deprecated("Use ImprovedRenderer.lektor.record instead.", version="3.4.0")
     def record(self) -> SourceObject:
         return self.lektor.record
 
-    @property  # type: ignore[misc]
+    @property
     @deprecated("Use ImprovedRenderer.lektor.meta instead.", version="3.4.0")
     def meta(self) -> Meta:
         return self.lektor.meta
 
-    def link(self, link: str, title: Optional[str], text: str) -> str:
+    def link(self, link: str, title: str | None, text: str) -> str:
         url = self.lektor.resolve_url(link)
         if not title:
             return f'<a href="{escape(url)}">{text}</a>'
         return f'<a href="{escape(url)}" title="{escape(title)}">{text}</a>'
 
-    def image(self, src: str, title: Optional[str], text: str) -> str:
+    def image(self, src: str, title: str | None, text: str) -> str:
         url = escape(self.lektor.resolve_url(src))
         if not title:
             return f'<img src="{url}" alt="{escape(text)}">'
@@ -52,7 +52,7 @@ class MarkdownConfig:
             "escape": False,
         }
         self.renderer_base = ImprovedRenderer
-        self.renderer_mixins: List[type] = []
+        self.renderer_mixins: list[type] = []
 
     def make_renderer(self) -> ImprovedRenderer:
         bases = tuple(self.renderer_mixins) + (self.renderer_base,)

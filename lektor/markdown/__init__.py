@@ -1,11 +1,10 @@
+from __future__ import annotations
+
 import sys
 import warnings
 from collections.abc import Hashable
 from importlib import metadata
 from typing import Any
-from typing import Dict
-from typing import Optional
-from typing import Type
 from typing import TYPE_CHECKING
 from weakref import ref as weakref
 
@@ -23,7 +22,7 @@ from lektor.utils import DeprecatedWarning
 if TYPE_CHECKING:  # pragma: no cover
     from lektor.environment import Environment
 
-controller_class: Type[MarkdownController]
+controller_class: type[MarkdownController]
 
 
 MISTUNE_VERSION = metadata.version("mistune")
@@ -40,12 +39,12 @@ get_controller = ControllerCache(controller_class)
 
 class Markdown:
     def __init__(
-        self, source: str, record: Optional[SourceObject], field_options: FieldOptions
+        self, source: str, record: SourceObject | None, field_options: FieldOptions
     ) -> None:
         self.source = source
         self.__record = weakref(record) if record is not None else None
         self.__field_options = field_options
-        self.__cache: Dict[Hashable, RenderResult] = {}
+        self.__cache: dict[Hashable, RenderResult] = {}
 
     def __bool__(self) -> bool:
         return bool(self.source)
@@ -53,7 +52,7 @@ class Markdown:
     __nonzero__ = __bool__
 
     @property
-    def record(self) -> SourceObject:
+    def record(self) -> SourceObject | None:
         ref = self.__record
         if ref is None:
             return None
@@ -104,7 +103,7 @@ class Markdown:
 _deprecated_moved_to_submodule = {"escape", "ImprovedRenderer", "MarkdownConfig"}
 
 
-def __getattr__(name):
+def __getattr__(name: str) -> Any:
     """Access to ``escape``, ``ImprovedRenderer``, and ``MarkdownConfig``.
 
     These are imported from from either our .mistune0 or .mistune2 modules,
@@ -118,12 +117,12 @@ def __getattr__(name):
     return getattr(mistune_module, name)
 
 
-def __dir__():
+def __dir__() -> list[str]:
     return sorted(set(globals().keys()) | _deprecated_moved_to_submodule)
 
 
 @deprecated(version="3.4.0")
-def make_markdown(env: "Environment") -> Any:  # (Environment) -> mistune.Markdown
+def make_markdown(env: Environment) -> Any:  # (Environment) -> mistune.Markdown
     return get_controller(env).make_parser()
 
 

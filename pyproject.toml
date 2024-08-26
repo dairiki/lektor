@@ -202,7 +202,6 @@ module = [
     "lektor.datamodel",
     "lektor.devcli",
     "lektor.editor",
-    "lektor.markdown.*",
     "lektor.metaformat",
     "lektor.pluginsystem",
     "lektor.sourcesearch",
@@ -222,6 +221,7 @@ module = [
     "lektor.build_programs",
     "lektor.devserver",
     "lektor.imagetools.*",
+    "lektor.markdown.*",
 ]
 disallow_untyped_defs = true
 

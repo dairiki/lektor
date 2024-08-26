@@ -130,7 +130,7 @@ class RendererHelper:
         elif resolve_links == "never":
             # This is the old behavior, equivalent to '!' prefix
             resolve = False
-        return self.record.url_to(
+        return record.url_to(
             url, base_url=self.base_url, resolve=resolve, strict_resolve=strict_resolve
         )
 
