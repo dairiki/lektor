@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Iterable
 from typing import Iterator
 from typing import Literal
+from typing import Mapping
 from typing import overload
 from typing import Sequence
 from typing import TYPE_CHECKING
@@ -36,10 +37,13 @@ from lektor.constants import PRIMARY_ALT
 from lektor.context import Context
 from lektor.context import get_ctx
 from lektor.databags import Databags
+from lektor.datamodel import DataModel
+from lektor.datamodel import FlowBlockModel
 from lektor.datamodel import load_datamodels
 from lektor.datamodel import load_flowblocks
 from lektor.editor import make_editor_session
 from lektor.filecontents import FileContents
+from lektor.i18n import I18nBlock
 from lektor.imagetools import get_image_info
 from lektor.imagetools import make_image_thumbnail
 from lektor.imagetools import read_exif
@@ -392,21 +396,26 @@ class Record(DBSourceObject):
             return "(Index)"
         return self["_id"].replace("-", " ").replace("_", " ").title()
 
-    def get_record_label_i18n(self):
-        rv = {}
-        for lang, _ in (self.datamodel.label_i18n or {}).items():
-            label = self.datamodel.format_record_label(self, lang)
-            if not label:
-                label = self.get_fallback_record_label(lang)
-            rv[lang] = label
-        # Fill in english if missing
-        if "en" not in rv:
-            rv["en"] = self.get_fallback_record_label("en")
-        return rv
+    def get_record_label_i18n(self) -> I18nBlock:
+        datamodel = self.datamodel
+
+        def get_label(lang: str) -> str:
+            if label := datamodel.format_record_label(self, lang):
+                return label
+            return self.get_fallback_record_label(lang)
+
+        label_i18n = datamodel.label_i18n
+
+        if label_i18n:
+            return I18nBlock(
+                (lang, get_label(lang)) for lang in set(label_i18n.keys()).union({"en"})
+            )
+
+        return I18nBlock(en=self.get_fallback_record_label("en"))
 
     @property
     def record_label(self):
-        return (self.get_record_label_i18n() or {}).get("en")
+        return self.get_record_label_i18n().get("en")
 
     @property
     def url_path(self) -> str:
@@ -1289,6 +1298,9 @@ default_slug_descriptor = property(get_default_slug)
 
 
 class Database:
+    datamodels: Mapping[str, DataModel]
+    flowblocks: Mapping[str, FlowBlockModel]
+
     def __init__(self, env: Environment, config: Config | None = None):
         self.env = env
         if config is None:

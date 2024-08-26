@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import re
+import sys
+from typing import Any
+from typing import Mapping
+from typing import Sequence
+from typing import TYPE_CHECKING
 
 from jinja2 import is_undefined
 from jinja2 import TemplateNotFound
+from jinja2 import Undefined
 from markupsafe import Markup
 
 from lektor.constants import PRIMARY_ALT
@@ -11,12 +17,29 @@ from lektor.context import get_ctx
 from lektor.metaformat import tokenize
 from lektor.types.base import Type
 
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    from typing_extensions import Self
+
+if TYPE_CHECKING:
+    from _typeshed import Unused
+
+    from lektor.datamodel import FlowBlockModel
+    from lektor.db import Pad
+    from lektor.db import Record
+    from lektor.environment import Environment
+    from lektor.sourceobj import SourceObject
+    from lektor.types.base import RawValue
+
 
 _block_re = re.compile(r"^####\s*([^#]*?)\s*####\s*$")
 _line_unescape_re = re.compile(r"^#####(.*?)#####(\s*)$")
 
 
-def discover_relevant_flowblock_models(flow, pad, record, alt):
+def discover_relevant_flowblock_models(
+    flow: FlowType, pad: Pad, record: Record | None, alt: str
+) -> dict[str, dict[str, Any]]:
     """Returns a dictionary of all relevant flow blocks.  If no list of
     flow block names is provided all flow blocks are returned.  Otherwise
     only flow blocks that are in the list or are children of flowblocks
@@ -60,21 +83,23 @@ class BadFlowBlock(Exception):
 class FlowBlock:
     """Represents a flowblock for the template."""
 
-    def __init__(self, data, pad, record):
+    def __init__(self, data: Mapping[str, Any], pad: Pad, record: SourceObject):
         self._data = data
         self._bound_data = {}
         self.pad = pad
         self.record = record
 
+    _bound_data: dict[str, Any]
+
     @property
-    def flowblockmodel(self):
+    def flowblockmodel(self) -> FlowBlockModel:
         """The flowblock model that created this flow block."""
         return self.pad.db.flowblocks[self._data["_flowblock"]]
 
-    def __contains__(self, name):
+    def __contains__(self, name: str) -> bool:
         return name in self._data and not is_undefined(self._data[name])
 
-    def __getitem__(self, name):
+    def __getitem__(self, name: str) -> Any:
         # If any data of a flowblock is accessed, we record that we need
         # this dependency.
         ctx = get_ctx()
@@ -90,7 +115,7 @@ class FlowBlock:
             self._bound_data[name] = rv
         return rv
 
-    def __html__(self):
+    def __html__(self) -> str:
         ctx = get_ctx()
 
         # If we're in a nested render, we disable the rendering here or we
@@ -116,33 +141,33 @@ class FlowBlock:
         finally:
             ctx.flow_block_render_stack.pop()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{self.__class__.__name__} {self['_flowblock']!r}>"
 
 
 class Flow:
-    def __init__(self, blocks, record):
+    def __init__(self, blocks: Sequence[FlowBlock], record: SourceObject):
         self.blocks = blocks
         self.record = record
 
-    def __html__(self):
+    def __html__(self) -> Markup:
         return Markup("\n\n".join(x.__html__() for x in self.blocks))
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return bool(self.blocks)
 
     __nonzero__ = __bool__
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{self.__class__.__name__} {self.blocks!r}>"
 
 
 class FlowDescriptor:
-    def __init__(self, blocks, pad):
+    def __init__(self, blocks: Sequence[Mapping[str, Any]], pad: Pad):
         self._blocks = blocks
         self._pad = pad
 
-    def __get__(self, obj, type=None):
+    def __get__(self, obj: SourceObject, type: Unused = ...) -> Flow | Self:
         if obj is None:
             return self
         return Flow([FlowBlock(data, self._pad, obj) for data in self._blocks], obj)
@@ -181,13 +206,13 @@ def process_flowblock_data(raw_value: str) -> list[tuple[str, list[str]]]:
 class FlowType(Type):
     widget = "flow"
 
-    def __init__(self, env, options):
+    def __init__(self, env: Environment, options: dict[str, str]):
         Type.__init__(self, env, options)
         self.flow_blocks = [
             x.strip() for x in options.get("flow_blocks", "").split(",") if x.strip()
         ] or None
 
-    def value_from_raw(self, raw):
+    def value_from_raw(self, raw: RawValue) -> FlowDescriptor | Undefined:
         if raw.value is None:
             return raw.missing_value("Missing flow")
         if raw.pad is None:
@@ -218,8 +243,10 @@ class FlowType(Type):
 
         return FlowDescriptor(rv, raw.pad)
 
-    def to_json(self, pad, record=None, alt=PRIMARY_ALT):
-        rv = Type.to_json(self, pad, record, alt)
+    def to_json(
+        self, pad: Pad, record: Record | None = None, alt: str = PRIMARY_ALT
+    ) -> dict[str, Any]:
+        rv = super().to_json(pad, record, alt)
 
         rv["flowblocks"] = discover_relevant_flowblock_models(self, pad, record, alt)
 

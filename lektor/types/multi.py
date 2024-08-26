@@ -8,6 +8,8 @@ from typing import Tuple
 from typing import TYPE_CHECKING
 from typing import Union
 
+from jinja2 import Undefined
+
 from lektor.constants import PRIMARY_ALT
 from lektor.environment.expressions import Expression
 from lektor.environment.expressions import FormatExpression
@@ -19,6 +21,7 @@ if TYPE_CHECKING:
     from lektor.db import Pad
     from lektor.db import Record
     from lektor.environment import Environment
+    from lektor.types.base import RawValue
 
 
 def _reflow_and_split_labels(labels_i18n: I18nBlock) -> list[I18nBlock]:
@@ -160,7 +163,7 @@ class MultiType(Type):
 class SelectType(MultiType):
     widget = "select"
 
-    def value_from_raw(self, raw):
+    def value_from_raw(self, raw: RawValue) -> str | Undefined:
         if raw.value is None:
             return raw.missing_value("Missing select value")
         return raw.value
@@ -169,7 +172,7 @@ class SelectType(MultiType):
 class CheckboxesType(MultiType):
     widget = "checkboxes"
 
-    def value_from_raw(self, raw):
+    def value_from_raw(self, raw: RawValue) -> list[str]:
         rv = [x.strip() for x in (raw.value or "").split(",")]
         if rv == [""]:
             rv = []

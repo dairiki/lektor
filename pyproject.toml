@@ -205,7 +205,6 @@ module = [
     "lektor.publisher",
     "lektor.sourceobj",
     "lektor.sourcesearch",
-    "lektor.types.*",
     "lektor.utils",
     "lektor.videotools",
     "tests.*",

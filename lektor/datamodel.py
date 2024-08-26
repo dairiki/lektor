@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import os
+from typing import Any
 from typing import Sequence
 from typing import TYPE_CHECKING
 from typing import TypeVar
@@ -24,7 +25,9 @@ from lektor.utils import slugify
 
 
 if TYPE_CHECKING:
+    from lektor.db import Pad
     from lektor.db import Query
+    from lektor.db import Record
     from lektor.environment import Environment
 
 
@@ -413,13 +416,13 @@ class DataModel:
 class FlowBlockModel:
     def __init__(
         self,
-        env,
-        id,
-        name_i18n,
-        filename=None,
-        fields=None,
-        order=None,
-        button_label=None,
+        env: Environment,
+        id: str,
+        name_i18n: I18nBlock,
+        filename: str,
+        fields: list[Field] | None = None,
+        order: int | None = None,
+        button_label: str | None = None,
     ):
         self.env = env
         self.id = id
@@ -439,10 +442,12 @@ class FlowBlockModel:
         )
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self.name_i18n.get("en") or self.id.title().replace("_", " ")
 
-    def to_json(self, pad, record=None, alt=PRIMARY_ALT):
+    def to_json(
+        self, pad: Pad, record: Record | None = None, alt: str = PRIMARY_ALT
+    ) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
@@ -457,7 +462,9 @@ class FlowBlockModel:
             "button_label": self.button_label,
         }
 
-    def process_raw_data(self, raw_data, pad=None):
+    def process_raw_data(
+        self, raw_data: dict[str, str], pad: Pad | None = None
+    ) -> dict[str, Any]:
         rv = {}
         for field in self.field_map.values():
             value = raw_data.get(field.name)
@@ -465,7 +472,7 @@ class FlowBlockModel:
         rv["_flowblock"] = self.id
         return rv
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{self.__class__.__name__} {self.id!r}>"
 
 
@@ -677,7 +684,7 @@ def load_datamodels(env):
     return rv
 
 
-def load_flowblocks(env):
+def load_flowblocks(env: Environment) -> dict[str, FlowBlockModel]:
     """Loads all the flow blocks for a specific environment."""
     # Flowblocks will override previous loaded flowblocks with the same name
     # So paths are loaded in reverse order

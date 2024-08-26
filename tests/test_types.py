@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import re
 import warnings
+from unittest import mock
 
 import pytest
 from jinja2 import Undefined
@@ -11,31 +12,30 @@ from markupsafe import Markup
 
 from lektor.context import Context
 from lektor.datamodel import Field
+from lektor.sourceobj import SourceObject
 from lektor.types.base import BadValue
 from lektor.types.formats import MarkdownDescriptor
 
 
-class DummySource:
-    url_path = "/"
-
-    @staticmethod
-    def url_to(url, **kwargs):
+@pytest.fixture
+def dummy_source() -> SourceObject:
+    def _url_to(url, *args, **kwargs):
         return url
+
+    return mock.Mock(spec=SourceObject, url_path="/", url_to=_url_to)
 
 
 def make_field(env, type, **options):
     return Field(env, "demo", type=env.types[type], options=options)
 
 
-def test_markdown(env, pad):
+def test_markdown(env, pad, dummy_source):
     field = make_field(env, "markdown")
-
-    source = DummySource()
 
     with Context(pad=pad):
         rv = field.deserialize_value("Hello **World**!", pad=pad)
         assert isinstance(rv, MarkdownDescriptor)
-        rv = rv.__get__(source)
+        rv = rv.__get__(dummy_source)
         assert rv
         assert rv.source == "Hello **World**!"
         assert escape(rv) == Markup("<p>Hello <strong>World</strong>!</p>\n")
@@ -44,21 +44,20 @@ def test_markdown(env, pad):
         for val in "", None:
             rv = field.deserialize_value(val, pad=pad)
             assert isinstance(rv, MarkdownDescriptor)
-            rv = rv.__get__(source)
+            rv = rv.__get__(dummy_source)
             assert not rv
             assert rv.source == ""
             assert escape(rv) == Markup("")
             assert rv.meta == {}
 
 
-def test_markdown_links(env, pad):
+def test_markdown_links(env, pad, dummy_source):
     field = make_field(env, "markdown")
-    source = DummySource()
 
     def md(s):
         rv = field.deserialize_value(s, pad=pad)
         assert isinstance(rv, MarkdownDescriptor)
-        return str(rv.__get__(source)).strip()
+        return str(rv.__get__(dummy_source)).strip()
 
     with Context(pad=pad):
         assert md("[foo](http://example.com/)") == (
