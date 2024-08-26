@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 def _line_is_dashes(line):
     line = line.strip()
     return line == "-" * len(line) and len(line) >= 3
@@ -25,8 +28,8 @@ def tokenize(iterable, interesting_keys=None, encoding=None):
     This will not perform any other processing on the data other than
     decoding and basic tokenizing.
     """
-    key = []
-    buf = []
+    key: list[str] = []
+    buf: list[str] = []
     want_newline = False
     is_interesting = True
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import errno
 import os
 
@@ -8,6 +10,7 @@ from lektor.environment.expressions import Expression
 from lektor.environment.expressions import FormatExpression
 from lektor.i18n import generate_i18n_kvs
 from lektor.i18n import get_i18n_block
+from lektor.i18n import I18nBlock
 from lektor.pagination import Pagination
 from lektor.reporter import reporter
 from lektor.types import builtin_types
@@ -182,7 +185,7 @@ class Field:
         self.name = name
         label_i18n = get_i18n_block(options, "label")
         if not label_i18n:
-            label_i18n = {"en": name.replace("_", " ").strip().capitalize()}
+            label_i18n = I18nBlock(en=name.replace("_", " ").strip().capitalize())
         self.label_i18n = label_i18n
         self.description_i18n = get_i18n_block(options, "description") or None
         self.default = options.get("default")
@@ -624,7 +627,7 @@ def load_datamodels(env):
         for model_id, inifile in iter_inis(path):
             data[model_id] = datamodel_data_from_ini(model_id, inifile)
 
-    rv = {}
+    rv: dict[str, DataModel] = {}
 
     def get_model(model_id):
         model = rv.get(model_id)

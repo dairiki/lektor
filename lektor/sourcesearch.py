@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sqlite3
 
 from lektor.constants import PRIMARY_ALT
@@ -25,8 +27,8 @@ def _id_from_path(path):
         return ""
 
 
-def _mapping_from_cursor(cur):
-    rv = {}
+def _mapping_from_cursor(cur: sqlite3.Cursor) -> dict[str, list[dict[str, str]]]:
+    rv: dict[str, list[dict[str, str]]] = {}
     for path, alt, lang, type, title in cur.fetchall():
         rv.setdefault(path, []).append(
             {

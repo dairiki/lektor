@@ -1,9 +1,14 @@
 # pylint: disable=import-outside-toplevel
+from __future__ import annotations
+
 import os
 import sys
 import warnings
 from importlib import metadata
 from itertools import chain
+from typing import Iterable
+from typing import NoReturn
+from typing import TYPE_CHECKING
 
 import click
 
@@ -17,6 +22,8 @@ from lektor.cli_utils import validate_language
 from lektor.project import Project
 from lektor.utils import secure_url
 
+if TYPE_CHECKING:
+    from _typeshed import Unused
 
 version = metadata.version("Lektor")
 
@@ -128,7 +135,7 @@ def build_cmd(
     env = ctx.get_env()
 
     with CliReporter(env, verbosity=verbosity):
-        builds = ["first"]
+        builds: Iterable[Unused] = ["first"]
         if watch:
             from lektor.watcher import watch_project
 
@@ -229,7 +236,7 @@ def clean_cmd(ctx, output_path, verbosity, extra_flags):
 )
 @extraflag
 @pass_context
-def deploy_cmd(ctx, server, output_path, extra_flags, **credentials):
+def deploy_cmd(ctx, /, server, output_path, extra_flags, **credentials):
     """This command deploys the entire contents of the build folder
     (`--output-path`) onto a configured remote server.  The name of the
     server must fit the name from a target in the project configuration.
@@ -324,7 +331,7 @@ def deploy_cmd(ctx, server, output_path, extra_flags, **credentials):
 @extraflag
 @click.option("--browse", is_flag=True)
 @pass_context
-def server_cmd(ctx, host, port, output_path, prune, verbosity, extra_flags, browse):
+def server_cmd(ctx, /, host, port, output_path, prune, verbosity, extra_flags, browse):
     """The server command will launch a local server for development.
 
     Lektor's development server will automatically build all files into
@@ -332,6 +339,7 @@ def server_cmd(ctx, host, port, output_path, prune, verbosity, extra_flags, brow
     works, but also at the same time serve up the website on a local
     HTTP server.
     """
+    from lektor.devserver import BindAddr
     from lektor.devserver import run_server
 
     if output_path is None:
@@ -340,7 +348,7 @@ def server_cmd(ctx, host, port, output_path, prune, verbosity, extra_flags, brow
     click.echo(" * Project path: %s" % ctx.get_project().project_path)
     click.echo(" * Output path: %s" % output_path)
     run_server(
-        (host, port),
+        BindAddr(host, port),
         env=ctx.get_env(),
         output_path=output_path,
         prune=prune,
@@ -382,7 +390,7 @@ def server_cmd(ctx, host, port, output_path, prune, verbosity, extra_flags, brow
     help="Print the path to the package cache.",
 )
 @pass_context
-def project_info_cmd(ctx, as_json, **opts):
+def project_info_cmd(ctx, /, as_json, **opts):
     """Prints out information about the project.  This is particular
     useful for script usage or for discovering information about a
     Lektor project that is not immediately obvious (like the paths
@@ -412,14 +420,14 @@ def project_info_cmd(ctx, as_json, **opts):
 @click.option("as_json", "--json", is_flag=True, help="Prints out the data as json.")
 @click.argument("files", nargs=-1, type=click.Path(dir_okay=False))
 @pass_context
-def content_file_info_cmd(ctx, files, as_json):
+def content_file_info_cmd(ctx, /, files, as_json):
     """Given a list of files this returns the information for those files
     in the context of a project.  If the files are from different projects
     an error is generated.
     """
     project = None
 
-    def fail(msg):
+    def fail(msg: str) -> NoReturn:
         if as_json:
             echo_json({"success": False, "error": msg})
             sys.exit(1)
@@ -607,7 +615,7 @@ def plugins_reinstall_cmd(ctx):
     help="Output directory",
 )
 @pass_context
-def quickstart_cmd(ctx, **options):
+def quickstart_cmd(ctx, /, **options):
     """Starts a new empty project with a minimum boilerplate."""
     from lektor.quickstart import project_quickstart
 

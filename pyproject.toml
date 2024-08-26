@@ -196,13 +196,6 @@ warn_return_any = false
 [[tool.mypy.overrides]]
 # These are not checked at all
 module = [
-    "lektor.cli",
-    "lektor.datamodel",
-    "lektor.devcli",
-    "lektor.editor",
-    "lektor.metaformat",
-    "lektor.sourcesearch",
-    "lektor.videotools",
     "tests.*",
 ]
 ignore_errors = true

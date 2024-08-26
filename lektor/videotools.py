@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import decimal
 import json
 import os
 import subprocess
 from collections import namedtuple
+from contextlib import suppress
 from datetime import timedelta
 
 from lektor.imagetools import Thumbnail
@@ -249,30 +252,31 @@ def get_video_info(filename):
         raise RuntimeError("ffprobe exited with code %d" % proc.returncode)
 
     ffprobe_data = json.loads(stdout.decode("utf8"))
-    info = {
-        "width": None,
-        "height": None,
-        "duration": None,
-    }
+
+    width: int | None = None
+    height: int | None = None
+    duration: timedelta | None = None
 
     # Try to extract total video duration
-    try:
-        info["duration"] = timedelta(seconds=float(ffprobe_data["format"]["duration"]))
-    except (KeyError, TypeError, ValueError):
-        pass
+    with suppress(KeyError, TypeError, ValueError):
+        duration = timedelta(seconds=float(ffprobe_data["format"]["duration"]))
 
     # Try to extract width and height from the first found video stream
     for stream in ffprobe_data["streams"]:
         if stream["codec_type"] != "video":
             continue
 
-        info["width"] = int(stream["width"])
-        info["height"] = int(stream["height"])
+        width = int(stream["width"])
+        height = int(stream["height"])
 
         # We currently don't bother with multiple video streams
         break
 
-    return info
+    return {
+        "width": width,
+        "height": height,
+        "duration": duration,
+    }
 
 
 def make_video_thumbnail(

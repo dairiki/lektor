@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import posixpath
 import shutil
@@ -6,12 +8,12 @@ from collections import ChainMap
 from collections import OrderedDict
 from collections.abc import ItemsView
 from collections.abc import KeysView
-from collections.abc import Mapping
-from collections.abc import MutableMapping
 from collections.abc import ValuesView
 from contextlib import suppress
 from functools import wraps
 from itertools import chain
+from typing import Mapping
+from typing import MutableMapping
 
 from lektor.constants import PRIMARY_ALT
 from lektor.metaformat import serialize
@@ -53,6 +55,7 @@ def make_editor_session(pad, path, is_attachment=None, alt=PRIMARY_ALT, datamode
 
     raw_data = pad.db.load_raw_data(path, cls=OrderedDict, alt=alt, fallback=False)
     raw_data_fallback = None
+    all_data: Mapping[str, str]
     if alt != PRIMARY_ALT:
         raw_data_fallback = pad.db.load_raw_data(path, cls=OrderedDict)
         all_data = OrderedDict()
@@ -437,7 +440,7 @@ class EditorSession:
 del _deprecated_data_proxy
 
 
-class EditorData(Mapping):
+class EditorData(Mapping[str, str]):
     """A read-only view of edited data.
 
     This is a chained dict with (possibly) mutated data overlaid on
@@ -503,7 +506,7 @@ class EditorData(Mapping):
         return EditorData(self.original_data, _changed_data=self._changed_data)
 
 
-class MutableEditorData(EditorData, MutableMapping):
+class MutableEditorData(EditorData, MutableMapping[str, str]):
     """A mutable view of edited data.
 
     This is a chained dict with (possibly) mutated data overlaid on

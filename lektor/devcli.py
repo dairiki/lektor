@@ -1,6 +1,9 @@
 # pylint: disable=import-outside-toplevel
+from __future__ import annotations
+
 import os
 import sys
+from typing import Any
 
 import click
 
@@ -52,7 +55,7 @@ def shell_cmd(ctx, extra_flags):
         sys.platform,
         ctx.get_env().root_path,
     )
-    ns = {}
+    ns: dict[str, Any] = {}
     startup = os.environ.get("PYTHONSTARTUP")
     if startup and os.path.isfile(startup):
         with open(startup, encoding="utf-8") as f:
@@ -81,7 +84,7 @@ def shell_cmd(ctx, extra_flags):
 @click.option("--path", type=click.Path(), help="The destination path")
 @click.argument("plugin_name", required=False)
 @pass_context
-def new_plugin(ctx, **defaults):
+def new_plugin(ctx, /, **defaults):
     """This command creates a new plugin.
 
     This will present you with a very short wizard that guides you through
@@ -100,7 +103,7 @@ def new_plugin(ctx, **defaults):
 @click.option("--path", type=click.Path(), help="The destination path")
 @click.argument("theme_name", required=False)
 @pass_context
-def new_theme(ctx, **defaults):
+def new_theme(ctx, /, **defaults):
     """This command creates a new theme.
 
     This will present you with a very short wizard that guides you through
