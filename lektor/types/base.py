@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from jinja2 import Undefined
 
 from lektor.constants import PRIMARY_ALT

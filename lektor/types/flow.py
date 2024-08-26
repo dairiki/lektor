@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 
 from jinja2 import is_undefined
@@ -146,11 +148,11 @@ class FlowDescriptor:
         return Flow([FlowBlock(data, self._pad, obj) for data in self._blocks], obj)
 
 
-def process_flowblock_data(raw_value):
+def process_flowblock_data(raw_value: str) -> list[tuple[str, list[str]]]:
     lineiter = iter(raw_value.splitlines(True))
-    block = None
-    buf = []
-    blocks = []
+    block: str | None = None
+    buf: list[str] = []
+    blocks: list[tuple[str, list[str]]] = []
 
     for line in lineiter:
         # Until we found the first block, we ignore leading whitespace.

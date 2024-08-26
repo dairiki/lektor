@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from lektor.types.base import BadValue  # noqa - reexport
 from lektor.types.base import get_undefined_info  # noqa - reexport
 from lektor.types.base import RawValue  # noqa - reexport

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from lektor.types.primitives import SingleInputType
 from lektor.utils import slugify
 from lektor.utils import Url

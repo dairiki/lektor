@@ -202,8 +202,6 @@ module = [
     "lektor.editor",
     "lektor.metaformat",
     "lektor.sourcesearch",
-    "lektor.types.flow",
-    "lektor.types.multi",
     "lektor.videotools",
     "tests.*",
 ]
