@@ -25,6 +25,7 @@ from typing import Any
 from typing import Callable
 from typing import ClassVar
 from typing import Iterable
+from typing import Iterator
 from typing import overload
 from typing import TYPE_CHECKING
 from typing import TypeVar
@@ -162,9 +163,14 @@ def is_path_child_of(a, b, strict=True):
     return a_p[: len(b_p)] == b_p and len(a_p) > len(b_p)
 
 
-def untrusted_to_os_path(path):
-    if not isinstance(path, str):
-        path = path.decode(fs_enc, "replace")
+def untrusted_to_os_path(path: str) -> str:
+    # FIXME: This is used in Database.to_fs_path, to convert DB paths to relative paths.
+    # Hence it strips any leading slashes.
+    #
+    # BUT it is also used by Project.from_file, where it is used to sanitize filesystem
+    # paths?  I'm not sure that we want to strip leading slashes in that case.  In any
+    # case for filesystem paths should just use os.path.* or pathlib.Path operations?
+    assert isinstance(path, str)
     clean_path = cleanup_path(path)
     assert clean_path.startswith("/")
     return clean_path[1:].replace("/", os.path.sep)
@@ -761,7 +767,7 @@ def build_url(iterable, trailing_slash=None):
     return builder.get_url(trailing_slash=trailing_slash)
 
 
-def comma_delimited(s):
+def comma_delimited(s: str) -> Iterator[str]:
     """Split a comma-delimited string."""
     for part in s.split(","):
         stripped = part.strip()

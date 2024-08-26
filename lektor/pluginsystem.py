@@ -7,12 +7,17 @@ import warnings
 from importlib import metadata
 from pathlib import Path
 from typing import Any
+from typing import Sequence
+from typing import TYPE_CHECKING
 from weakref import ref as weakref
 
 from inifile import IniFile
 
 from lektor.context import get_ctx
 from lektor.utils import process_extra_flags
+
+if TYPE_CHECKING:
+    from lektor.environment import Environment
 
 
 def get_plugin(plugin_id_or_class, env=None):
@@ -162,7 +167,11 @@ class PluginController:
     the environment.
     """
 
-    def __init__(self, env, extra_flags=None):
+    def __init__(
+        self,
+        env: Environment,
+        extra_flags: Sequence[str] | dict[str, str] | None = None,
+    ):
         self._env = weakref(env)
         self.extra_flags = extra_flags
 

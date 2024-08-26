@@ -5,6 +5,8 @@ import os
 import sys
 from enum import Enum
 from pathlib import Path
+from typing import Sequence
+from typing import TYPE_CHECKING
 
 from inifile import IniFile
 from werkzeug.utils import cached_property
@@ -14,9 +16,23 @@ from lektor.utils import comma_delimited
 from lektor.utils import get_cache_dir
 from lektor.utils import untrusted_to_os_path
 
+if TYPE_CHECKING:
+    from _typeshed import StrPath
+
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    from typing_extensions import Self
+
 
 class Project:
-    def __init__(self, name, project_file, tree, themes=None):
+    def __init__(
+        self,
+        name: str,
+        project_file: StrPath | None,
+        tree: str,
+        themes: Sequence[str] | None = None,
+    ):
         self.name = name
         self.project_file = project_file
         self.tree = os.path.normpath(tree)
@@ -29,7 +45,7 @@ class Project:
         return IniFile(self.project_file)
 
     @classmethod
-    def from_file(cls, filename):
+    def from_file(cls, filename: StrPath) -> Self | None:
         """Reads a project from a project file."""
         inifile = IniFile(filename)
         if inifile.is_new:
@@ -58,7 +74,7 @@ class Project:
         )
 
     @classmethod
-    def from_path(cls, path, extension_required=False):
+    def from_path(cls, path: StrPath, extension_required: bool = False) -> Self | None:
         """Locates the project for a path."""
         path = os.path.abspath(path)
         if os.path.isfile(path) and (
@@ -87,7 +103,7 @@ class Project:
         return None
 
     @classmethod
-    def discover(cls, base=None):
+    def discover(cls, base: StrPath | None = None) -> Self | None:
         """Auto discovers the closest project."""
         if base is None:
             base = os.getcwd()
@@ -103,10 +119,10 @@ class Project:
         return None
 
     @property
-    def project_path(self):
+    def project_path(self) -> StrPath:
         return self.project_file or self.tree
 
-    def get_output_path(self):
+    def get_output_path(self) -> str:
         """The path where output files are stored."""
         config = self.open_config()  # raises if no project_file
         output_path = config.get("project.output_path")
@@ -136,7 +152,7 @@ class Project:
 
         return Path(get_cache_dir(), cache_name, h.hexdigest())
 
-    def content_path_from_filename(self, filename):
+    def content_path_from_filename(self, filename: StrPath) -> str | None:
         """Given a filename returns the content path or None if
         not in project.
         """
@@ -155,12 +171,12 @@ class Project:
             return "/" + "/".join(file_path[len(content_path) :])
         return None
 
-    def make_env(self, load_plugins=True):
+    def make_env(self, load_plugins: bool = True) -> Environment:
         """Create a new environment for this project."""
         return Environment(self, load_plugins=load_plugins)
 
     @cached_property
-    def excluded_assets(self):
+    def excluded_assets(self) -> list[str]:
         """List of glob patterns matching filenames of excluded assets.
 
         Combines with default EXCLUDED_ASSETS.
@@ -169,7 +185,7 @@ class Project:
         return list(comma_delimited(config.get("project.excluded_assets", "")))
 
     @cached_property
-    def included_assets(self):
+    def included_assets(self) -> list[str]:
         """List of glob patterns matching filenames of included assets.
 
         Overrides both excluded_assets and the default excluded patterns.
@@ -177,13 +193,17 @@ class Project:
         config = self.open_config()
         return list(comma_delimited(config.get("project.included_assets", "")))
 
-    def to_json(self):
+    def to_json(self) -> dict[str, str | None]:
+        if self.project_file is not None:
+            project_file = os.fspath(self.project_file)
+        else:
+            project_file = None
         return {
             "name": self.name,
-            "project_file": self.project_file,
-            "project_path": self.project_path,
+            "project_file": project_file,
+            "project_path": os.fspath(self.project_path),
             "default_output_path": self.get_output_path(),
-            "package_cache_path": str(self.get_package_cache_path()),
+            "package_cache_path": os.fspath(self.get_package_cache_path()),
             "id": self.id,
             "tree": self.tree,
         }

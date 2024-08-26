@@ -206,7 +206,6 @@ module = [
     "lektor.sourcesearch",
     "lektor.types.flow",
     "lektor.types.multi",
-    "lektor.utils",
     "lektor.videotools",
     "tests.*",
 ]
@@ -234,6 +233,7 @@ module = [
     "lektor.environment.config",
     "lektor.context",
     "lektor.packages",
+    "lektor.project",
     "lektor.reporter",
     "lektor.typing",
     "lektor.watcher",

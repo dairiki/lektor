@@ -6,6 +6,8 @@ import sys
 import uuid
 from functools import update_wrapper
 from typing import Callable
+from typing import Iterable
+from typing import Sequence
 from typing import TYPE_CHECKING
 from typing import TypeVar
 
@@ -29,6 +31,7 @@ from lektor.environment.expressions import FormatExpression  # noqa - reexport
 from lektor.markdown import Markdown
 from lektor.packages import load_packages
 from lektor.pluginsystem import initialize_plugins
+from lektor.pluginsystem import Plugin
 from lektor.pluginsystem import PluginController
 from lektor.publisher import builtin_publishers
 from lektor.utils import format_lat_long
@@ -43,13 +46,20 @@ if TYPE_CHECKING:
     from typing import Literal
     from lektor.assets import Asset
     from lektor.build_programs import BuildProgram
+    from lektor.db import Record
+    from lektor.project import Project
     from lektor.sourceobj import SourceObject
+    from lektor.sourceobj import VirtualSourceObject
 
 
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
 _SourceObj_co = TypeVar("_SourceObj_co", bound="SourceObject", covariant=True)
 _Asset_co = TypeVar("_Asset_co", bound="Asset", covariant=True)
+
+UrlResolver = Callable[["Record", Sequence[str]], "Record | None"]
+VirtualPathResolver = Callable[["Record", Sequence[str]], "VirtualSourceObject | None"]
+SourceGenerator = Callable[["SourceObject"], Iterable["SourceObject"]]
 
 
 def _prevent_inlining(wrapped: Callable[_P, _T]) -> Callable[_P, _T]:
@@ -209,11 +219,16 @@ def lookup_from_bag(jinja_ctx, *args):
 
 
 class Environment:
-    def __init__(self, project, load_plugins=True, extra_flags=None):
+    def __init__(
+        self,
+        project: Project,
+        load_plugins: bool = True,
+        extra_flags: Sequence[str] | dict[str, str] | None = None,
+    ):
         self.project = project
         self.root_path = os.path.abspath(project.tree)
 
-        self.theme_paths = [
+        self.theme_paths: list[str] = [
             os.path.join(self.root_path, "themes", theme)
             for theme in self.project.themes
         ]
@@ -280,14 +295,14 @@ class Environment:
         # modified by the plugin controller and registry methods on the
         # environment.
         self.plugin_controller = PluginController(self, extra_flags)
-        self.plugins = {}
-        self.plugin_ids_by_class = {}
+        self.plugins: dict[str, Plugin] = {}
+        self.plugin_ids_by_class: dict[type[Plugin], str] = {}
         self.build_programs = []
         self.special_file_assets = {}
         self.special_file_suffixes = {}
-        self.custom_url_resolvers = []
-        self.custom_generators = []
-        self.virtual_sources = {}
+        self.custom_url_resolvers: list[UrlResolver] = []
+        self.custom_generators: list[SourceGenerator] = []
+        self.virtual_sources: dict[str, VirtualPathResolver] = {}
 
         if load_plugins:
             self.load_plugins()
