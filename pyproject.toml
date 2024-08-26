@@ -186,22 +186,44 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 
 strict = true
-#implicit_reexport = true
+implicit_reexport = false
 
-# By default we don't check for untyped defs or untyped calls
+
+[[tool.mypy.overrides]]
+# These modules are not yet completely annotated
 disallow_untyped_defs = false
 disallow_untyped_calls = false
 warn_return_any = false
 
-[[tool.mypy.overrides]]
-# These are not checked at all
 module = [
+    "lektor.__main__",
+    "lektor.cli",
+    "lektor.cli_utils",
+    "lektor.datamodel",
+    "lektor.db",
+    "lektor.devcli",
+    "lektor.editor",
+    "lektor.exception",
+    "lektor.filecontents",
+    "lektor.i18n",
+    "lektor.metaformat",
+    "lektor.pagination",
+    "lektor.publisher",
+    "lektor.quickstart",
+    "lektor.sourceobj",
+    "lektor.sourcesearch",
+    "lektor.types.*",
+    "lektor.utils",
+    "lektor.videotools",
+    "tests.*",
 ]
-ignore_errors = true
 
 [[tool.mypy.overrides]]
 # These modules are completely annotated, but use
 # modules that are not.
+disallow_untyped_calls = false
+warn_return_any = false
+
 module = [
     "lektor.admin.*",
     "lektor.build_programs",
@@ -211,28 +233,6 @@ module = [
     "lektor.imagetools.*",
     "lektor.markdown.*",
 ]
-disallow_untyped_defs = true
-
-[[tool.mypy.overrides]]
-# These modules are "fully typechecked"
-module = [
-    "lektor.assets",
-    "lektor.buildfailures",
-    "lektor.compat",
-    "lektor.constants",
-    "lektor.environment.*",
-    "lektor.context",
-    "lektor.packages",
-    "lektor.pluginsystem",
-    "lektor.project",
-    "lektor.reporter",
-    "lektor.typing",
-    "lektor.watcher",
-    "tests.test_packages",
-]
-disallow_untyped_defs = true
-disallow_untyped_calls = true
-warn_return_any = true
 
 [[tool.mypy.overrides]]
 # We will fix the typing here in a bit...
