@@ -3,7 +3,9 @@ from __future__ import annotations
 import importlib.metadata
 import tempfile
 import urllib.parse
+from types import ModuleType
 from typing import Any
+from typing import Mapping
 from urllib.parse import urlsplit
 from warnings import warn
 
@@ -15,15 +17,15 @@ from lektor.utils import DeprecatedWarning
 __all__ = ["werkzeug_urls_URL"]
 
 
-_DEPRECATED_ATTRS = {
+_DEPRECATED_ATTRS: Mapping[str, ModuleType | type] = {
     "TemporaryDirectory": tempfile.TemporaryDirectory,
     "importlib_metadata": importlib.metadata,
 }
 
 
-def __getattr__(name):
+def __getattr__(name: str) -> object:
     try:
-        value = _DEPRECATED_ATTRS.get(name)
+        value = _DEPRECATED_ATTRS[name]
     except KeyError:
         # pylint: disable=raise-missing-from
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -31,7 +33,7 @@ def __getattr__(name):
     if hasattr(value, "__module__"):
         replacement = f"{value.__module__}.{value.__name__}"
     else:
-        replacement = f"{value.__name__}"
+        replacement = value.__name__
     warn(
         DeprecatedWarning(
             name=f"lektor.compat.{name}",
@@ -110,7 +112,7 @@ class _CompatURL(urllib.parse.SplitResult):
         errors: str = "replace",
         # parse_qsl does not support the separator parameter in python < 3.7.10.
         # separator: str = "&",
-    ) -> MultiDict:
+    ) -> MultiDict[str, str]:
         return MultiDict(
             urllib.parse.parse_qsl(
                 self.query,
