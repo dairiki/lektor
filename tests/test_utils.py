@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 import pytest
 
 from lektor.utils import build_url
+from lektor.utils import decode_flat_data
 from lektor.utils import deprecated
 from lektor.utils import is_path_child_of
 from lektor.utils import join_path
@@ -86,6 +87,33 @@ def test_slugify():
     assert slugify("Șö prĕtty") == "so-pretty"
     assert slugify("im age.jpg") == "im-age.jpg"
     assert slugify("slashed/slug") == "slashed/slug"
+
+
+@pytest.mark.parametrize(
+    "flat, unflat",
+    [
+        ({"k": "v"}, {"k": "v"}),
+        ({"a.b": "v"}, {"a": {"b": "v"}}),
+        ({"1": "v"}, ["v"]),
+        ({"2": "y", "1": "x"}, ["x", "y"]),
+        ({"1": "y", "2": "x"}, ["y", "x"]),
+        ({"a.1": "x"}, {"a": ["x"]}),
+        ({"1.a": "x"}, [{"a": "x"}]),
+        ({"a": "IGNORED", "a.b": "v"}, {"a": {"b": "v"}}),  # XXX: should warn/fail?
+        pytest.param(
+            {"a": "x", "1": "y"}, ["x", "y"], marks=pytest.mark.xfail()
+        ),  # raises TypeError
+        ({"1": "x", "a": "y"}, {1: "x", "a": "y"}),  # XXX: weird
+        pytest.param(
+            {"a.1": "x", "a": "IGNORED"},
+            {"a": ["x"]},
+            marks=pytest.mark.xfail()
+            # currently returns {"a": {1: {}}} (not useful)
+        ),
+    ],
+)
+def test_decode_flat_data(flat, unflat):
+    assert decode_flat_data(flat.items()) == unflat
 
 
 def test_Url_constructor_deprecated():
