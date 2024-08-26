@@ -38,6 +38,7 @@ from lektor.admin.context import LektorContext
 from lektor.admin.utils import eventstream
 from lektor.constants import PRIMARY_ALT
 from lektor.datamodel import DataModel
+from lektor.db import Attachment
 from lektor.db import Record
 from lektor.environment.config import ServerInfo
 from lektor.publisher import publish
@@ -247,10 +248,10 @@ def find(validated: _FindParams, ctx: LektorContext) -> Response:
 @bp.route("/browsefs", methods=["POST"])
 @_with_validated(_PathAndAlt)
 def browsefs(validated: _PathAndAlt, ctx: LektorContext) -> Response:
-    record = ctx.pad.get(validated.path, alt=validated.alt)
+    record = ctx.pad.get(validated.path, alt=validated.alt, allow_virtual=False)
     okay = False
     if record is not None:
-        if record.is_attachment:
+        if isinstance(record, Attachment):
             fn = record.attachment_filename
         else:
             fn = record.source_filename

@@ -49,6 +49,7 @@ else:
     from typing_extensions import Self
 
 if TYPE_CHECKING:
+    from _typeshed import StrPath
     from _typeshed import Unused
 
 
@@ -552,15 +553,15 @@ class Url(urllib.parse.SplitResult):
         return self.fragment
 
 
-def is_unsafe_to_delete(path, base):
+def is_unsafe_to_delete(path: StrPath, base: StrPath) -> bool:
     a = os.path.abspath(path)
     b = os.path.abspath(base)
     diff = os.path.relpath(a, b)
-    first = diff.split(os.path.sep)[0]
+    first = diff.split(os.path.sep, maxsplit=1)[0]
     return first in (os.path.curdir, os.path.pardir)
 
 
-def prune_file_and_folder(name, base):
+def prune_file_and_folder(name: StrPath, base: StrPath) -> bool:
     if is_unsafe_to_delete(name, base):
         return False
     try:

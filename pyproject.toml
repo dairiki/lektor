@@ -215,6 +215,7 @@ ignore_errors = true
 module = [
     "lektor.admin.*",
     "lektor.build_programs",
+    "lektor.builder",
     "lektor.databags",
     "lektor.devserver",
     "lektor.imagetools.*",

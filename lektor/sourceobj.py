@@ -15,6 +15,7 @@ from lektor.utils import join_path
 
 
 if TYPE_CHECKING:
+    from lektor.builder import PathCache
     from lektor.db import Pad
 
 
@@ -290,11 +291,11 @@ class VirtualSourceObject(DBSourceObject):
     def path(self):
         raise NotImplementedError()
 
-    def get_mtime(self, path_cache):
+    def get_mtime(self, path_cache: PathCache) -> float | None:
         # pylint: disable=no-self-use
         return None
 
-    def get_checksum(self, path_cache):
+    def get_checksum(self, path_cache: PathCache) -> str | None:
         # pylint: disable=no-self-use
         return None
 

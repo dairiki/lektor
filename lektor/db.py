@@ -16,6 +16,8 @@ from operator import methodcaller
 from pathlib import Path
 from typing import Iterable
 from typing import Iterator
+from typing import Literal
+from typing import overload
 from typing import Sequence
 from typing import TYPE_CHECKING
 from urllib.parse import urljoin
@@ -28,6 +30,7 @@ from werkzeug.utils import cached_property
 
 from lektor import metaformat
 from lektor.assets import Asset
+from lektor.assets import Directory
 from lektor.assets import get_asset_root
 from lektor.constants import PRIMARY_ALT
 from lektor.context import Context
@@ -62,8 +65,8 @@ if TYPE_CHECKING:
 # pylint: disable=no-member
 
 
-def get_alts(source=None, fallback=False):
-    """Given a source this returns the list of all alts that the source
+def get_alts(source: Record | None = None, fallback: bool = False) -> list[str]:
+    """Given a source record this returns the list of all alts that the source
     exists as.  It does not include fallbacks unless `fallback` is passed.
     If no source is provided all configured alts are returned.  If alts are
     not configured at all, the return value is an empty list.
@@ -83,6 +86,7 @@ def get_alts(source=None, fallback=False):
 
     # If a source is provided and it's not virtual, we look up all alts
     # of the path on the pad to figure out which records exist.
+    # XXX: what about paginated records? Shouldn't we work for those?
     if source is not None and "@" not in source.path:
         rv = []
         for alt in alts:
@@ -542,7 +546,7 @@ def siblings_resolver(node, url_path):
 class Page(Record):
     """This represents a loaded record."""
 
-    is_attachment = False
+    is_attachment = False  # XXX: deprecate
     supports_pagination = True
 
     @cached_property
@@ -729,7 +733,7 @@ class Page(Record):
 class Attachment(Record):
     """This represents a loaded attachment."""
 
-    is_attachment = True
+    is_attachment = True  # XXX: deprecate (use isinstance)
 
     def _is_considered_hidden(self):
         # Attachments are only considered hidden if they have been
@@ -1676,7 +1680,7 @@ class Pad:
     root = property(get_root)
 
     @cached_property
-    def asset_root(self):
+    def asset_root(self) -> Directory:
         """The root of the asset tree.
 
         This root represents the logical merging of any theme asset trees with the
@@ -1699,7 +1703,7 @@ class Pad:
         """
         return []
 
-    def get_all_roots(self):
+    def get_all_roots(self) -> list[Record | Directory]:
         """Returns all the roots for building."""
         rv = []
         for alt in self.db.config.list_alternatives():
@@ -1732,60 +1736,106 @@ class Pad:
 
         return resolver(record, pieces[1:])
 
-    def get(self, path, alt=None, page_num=None, persist=True, allow_virtual=True):
+    @overload
+    def get(
+        self,
+        path: str,  # XXX: need more specific type
+        alt: str | None = None,
+        page_num: int | None = None,
+        persist: bool = True,
+        allow_virtual: Literal[True] = True,
+    ) -> Record | VirtualSourceObject | None:
+        ...
+
+    @overload
+    def get(
+        self,
+        path: str,  # XXX: need more specific type
+        alt: str | None = None,
+        page_num: int | None = None,
+        persist: bool = True,
+        *,
+        allow_virtual: Literal[False],
+    ) -> Record | None:
+        ...
+
+    @overload
+    def get(
+        self,
+        path: str,  # XXX: need more specific type
+        alt: str | None,
+        page_num: int | None,
+        persist: bool,
+        allow_virtual: Literal[False],
+    ) -> Record | None:
+        ...
+
+    def get(
+        self,
+        path: str,  # XXX: need more specific type
+        alt: str | None = None,
+        page_num: int | None = None,
+        persist: bool = True,
+        allow_virtual: bool = True,
+    ) -> Record | VirtualSourceObject | None:
         """Loads a record by path."""
         if alt is None:
             alt = self.config.primary_alternative or PRIMARY_ALT
-        virt_markers = path.count("@")
 
         # If the virtual marker is included, we also want to look up the
         # virtual path below an item.  Special case: if virtual paths are
         # not allowed but one was passed, we just return `None`.
-        if virt_markers == 1:
+        record_path, virtual_sep, virtual_path = path.partition("@")
+        if virtual_sep:
+            # Sanity check: there must only be one or things will get weird.
             if page_num is not None:
                 raise RuntimeError(
                     "Cannot use both virtual paths and "
                     "explicit page number lookups.  You "
                     "need to one or the other."
                 )
+            # Sanity check: there must only be one or things will get weird.
+            if "@" in virtual_path:
+                return None
             if not allow_virtual:
                 return None
-            path, virtual_path = path.split("@", 1)
-            rv = self.get(path, alt=alt, page_num=page_num, persist=persist)
-            if rv is None:
+            if (record := self.get(record_path, alt=alt, persist=persist)) is None:
                 return None
-            return self.get_virtual(rv, virtual_path)
+            return self.get_virtual(record, virtual_path)
 
-        # Sanity check: there must only be one or things will get weird.
-        if virt_markers > 1:
-            return None
-
-        path = cleanup_path(path)
-        virtual_path = None
+        clean_path = cleanup_path(path)
         if page_num is not None:
-            virtual_path = str(page_num)
+            page_vpath = str(page_num)
+        else:
+            page_vpath = None
 
-        rv = self.cache.get(path, alt, virtual_path)
+        rv = self.cache.get(clean_path, alt, page_vpath)
         if rv is not Ellipsis:
             if rv is not None:
                 self.db.track_record_dependency(rv)
             return rv
 
-        raw_data = self.db.load_raw_data(path, alt=alt)
+        raw_data = self.db.load_raw_data(clean_path, alt=alt)
         if raw_data is None:
-            self.cache.remember_as_missing(path, alt, virtual_path)
+            self.cache.remember_as_missing(path, alt, page_vpath)
             return None
 
-        rv = self.instance_from_data(raw_data, page_num=page_num)
+        record = self.instance_from_data(raw_data, page_num=page_num)
 
         if persist:
-            self.cache.persist(rv)
+            self.cache.persist(record)
         else:
-            self.cache.remember(rv)
+            self.cache.remember(record)
 
-        return self.db.track_record_dependency(rv)
+        self.db.track_record_dependency(record)
+        return record
 
-    def alt_exists(self, path, alt=PRIMARY_ALT, fallback=False):
+    def alt_exists(
+        self,
+        path: str,  # XXX: need more specific type
+        alt: str = PRIMARY_ALT,
+        fallback: bool = False,
+    ) -> bool:
         """Checks if an alt exists."""
         path = cleanup_path(path)
         if "@" in path:
@@ -1793,7 +1843,7 @@ class Pad:
 
         # If we find the path in the cache, check if it was loaded from
         # the right source alt.
-        rv = self.get(path, alt)
+        rv = self.get(path, alt, allow_virtual=False)
         if rv is not None:
             if rv["_source_alt"] == alt:
                 return True
@@ -1803,19 +1853,18 @@ class Pad:
             ):
                 return True
             return False
-
         return False
 
     def get_asset(self, path: str) -> Asset | None:
         """Loads an asset by path."""
         clean_path = cleanup_path(path).strip("/")
 
-        asset = self.asset_root
+        asset: Asset | None = self.asset_root
         if clean_path:
             for piece in clean_path.split("/"):
-                asset = asset.get_child(piece)
                 if asset is None:
                     return None
+                asset = asset.get_child(piece)
         return asset
 
     def instance_from_data(self, raw_data, datamodel=None, page_num=None):

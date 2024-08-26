@@ -75,7 +75,9 @@ UrlResolver = Callable[["Record", Sequence[str]], "Record | None"]
 VirtualPathResolver = Callable[["Record", Sequence[str]], "VirtualSourceObject | None"]
 SourceGenerator = Callable[["SourceObject"], Iterable["SourceObject"]]
 
-TemplateValuesType = Union["SupportsKeysAndGetItem[str, Any]", Iterable[Tuple[str, Any]]]
+TemplateValuesType = Union[
+    "SupportsKeysAndGetItem[str, Any]", Iterable[Tuple[str, Any]]
+]
 
 
 def _prevent_inlining(wrapped: Callable[_P, _T]) -> Callable[_P, _T]:
