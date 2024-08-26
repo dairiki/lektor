@@ -230,7 +230,7 @@ module = [
     "lektor.buildfailures",
     "lektor.compat",
     "lektor.constants",
-    "lektor.environment.config",
+    "lektor.environment.*",
     "lektor.context",
     "lektor.packages",
     "lektor.project",

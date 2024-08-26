@@ -747,7 +747,7 @@ def get_relative_path(source, target):
     raise AssertionError("This should not happen")
 
 
-def deg_to_dms(deg):
+def deg_to_dms(deg: float) -> tuple[int, int, float]:
     d = int(deg)
     md = abs(deg - d) * 60
     m = int(md)
@@ -755,8 +755,10 @@ def deg_to_dms(deg):
     return (d, m, sd)
 
 
-def format_lat_long(lat=None, long=None, secs=True):
-    def _format(value, sign):
+def format_lat_long(
+    lat: float | None = None, long: float | None = None, secs: bool = True
+) -> str:
+    def _format(value: float, sign: Sequence[str]) -> str:
         d, m, sd = deg_to_dms(value)
         return "%d° %d′ %s%s" % (
             abs(d),

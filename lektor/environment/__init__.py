@@ -1,15 +1,24 @@
 from __future__ import annotations
 
-import fnmatch
+import builtins
+import inspect
 import os
 import sys
 import uuid
+from fnmatch import fnmatch
 from functools import update_wrapper
+from itertools import chain
+from typing import Any
 from typing import Callable
 from typing import Iterable
+from typing import Literal
+from typing import MutableMapping
+from typing import Protocol
 from typing import Sequence
+from typing import Tuple
 from typing import TYPE_CHECKING
 from typing import TypeVar
+from typing import Union
 
 import babel.dates
 import jinja2
@@ -43,13 +52,18 @@ else:
     from typing_extensions import ParamSpec
 
 if TYPE_CHECKING:
-    from typing import Literal
+    from _typeshed import SupportsKeysAndGetItem
+
     from lektor.assets import Asset
     from lektor.build_programs import BuildProgram
+    from lektor.databags import DatabagType
+    from lektor.db import Pad
     from lektor.db import Record
     from lektor.project import Project
+    from lektor.publisher import Publisher
     from lektor.sourceobj import SourceObject
     from lektor.sourceobj import VirtualSourceObject
+    from lektor.types.base import Type
 
 
 _P = ParamSpec("_P")
@@ -60,6 +74,8 @@ _Asset_co = TypeVar("_Asset_co", bound="Asset", covariant=True)
 UrlResolver = Callable[["Record", Sequence[str]], "Record | None"]
 VirtualPathResolver = Callable[["Record", Sequence[str]], "VirtualSourceObject | None"]
 SourceGenerator = Callable[["SourceObject"], Iterable["SourceObject"]]
+
+TemplateValuesType = Union["SupportsKeysAndGetItem[str, Any]", Iterable[Tuple[str, Any]]]
 
 
 def _prevent_inlining(wrapped: Callable[_P, _T]) -> Callable[_P, _T]:
@@ -92,7 +108,28 @@ def _prevent_inlining(wrapped: Callable[_P, _T]) -> Callable[_P, _T]:
     return update_wrapper(wrapper, wrapped)  # type: ignore[return-value]
 
 
-def _dates_filter(name, wrapped):
+class _BabelFmtDate(Protocol):
+    def __call__(self, arg: Any, /, format: str = ..., locale: str | None = ...) -> str:
+        ...
+
+
+class _BabelFmtTime(Protocol):
+    # Also matches formt_datetime
+    def __call__(
+        self,
+        arg: Any,
+        /,
+        format: str = ...,
+        tzinfo: Any | None = ...,
+        locale: str | None = ...,
+    ) -> str:
+        ...
+
+
+_BabelFmt = TypeVar("_BabelFmt", _BabelFmtDate, _BabelFmtTime)
+
+
+def _dates_filter(name: str, wrapped: _BabelFmt) -> _BabelFmt:
     """Wrap one of the babel.dates.format_* functions for use as a jinja filter.
 
     This will create a jinja filter that will:
@@ -112,9 +149,18 @@ def _dates_filter(name, wrapped):
     If `locale` is not specified, we fill it in based on the current *alt*.
 
     """
+    signature = inspect.signature(wrapped)
 
     @_prevent_inlining
-    def wrapper(arg, format="medium", **kwargs):
+    def wrapper(arg: Any, *args: Any, **kwargs: Any) -> str:
+        bound = signature.bind(arg, *args, **kwargs)
+
+        format_ = bound.arguments.setdefault("format", "medium")
+        if not isinstance(format_, str):
+            raise TypeError(
+                f"The 'format' parameter to '{name}' should be a str, not {format_!r}"
+            )
+
         if isinstance(arg, jinja2.Undefined):
             # This will typically return an empty string, though it depends on the
             # specific type of undefined instance.  E.g. if arg is a DebugUndefined, it
@@ -122,17 +168,12 @@ def _dates_filter(name, wrapped):
             # an UndefinedError will be raised.
             return str(arg)
 
-        if not isinstance(format, str):
-            raise TypeError(
-                f"The 'format' parameter to '{name}' should be a str, not {format!r}"
-            )
-
-        locale = kwargs.get("locale")
+        locale = bound.arguments.get("locale")
         if locale is None:
-            kwargs["locale"] = get_locale("en_US")
+            bound.arguments["locale"] = get_locale("en_US")
 
         try:
-            return wrapped(arg, format, **kwargs)
+            return wrapped(*bound.args, **bound.kwargs)
         except (TypeError, ValueError):
             raise
         except Exception as exc:
@@ -173,16 +214,10 @@ EXCLUDED_ASSETS = ["_*", ".*"]
 INCLUDED_ASSETS: list[str] = []
 
 
-def any_fnmatch(filename, patterns):
-    for pat in patterns:
-        if fnmatch.fnmatch(filename, pat):
-            return True
-
-    return False
-
-
 class CustomJinjaEnvironment(jinja2.Environment):
-    def _load_template(self, name, globals):
+    def _load_template(
+        self, name: str, globals: MutableMapping[str, Any] | None
+    ) -> jinja2.Template:
         ctx = get_ctx()
 
         try:
@@ -212,9 +247,11 @@ class CustomJinjaEnvironment(jinja2.Environment):
 
 
 @jinja2.pass_context
-def lookup_from_bag(jinja_ctx, *args):
+def lookup_from_bag(
+    jinja_ctx: jinja2.runtime.Context, *args: str
+) -> DatabagType | str | None:
     pieces = ".".join(x for x in args if x)
-    site = jinja_ctx.get("site", default=site_proxy)
+    site: Pad = jinja_ctx.get("site", default=site_proxy)
     return site.databags.lookup(pieces)
 
 
@@ -256,7 +293,7 @@ class Environment:
 
         from lektor.db import F, get_alts  # pylint: disable=import-outside-toplevel
 
-        def latlongformat(latlong, secs=True):
+        def latlongformat(latlong: tuple[float, float], secs: bool = True) -> str:
             lat, lon = latlong
             return format_lat_long(lat=lat, long=lon, secs=secs)
 
@@ -311,6 +348,7 @@ class Environment:
 
         self.virtualpathresolver("siblings")(siblings_resolver)
 
+    jinja_env: jinja2.Environment
     plugin_controller: PluginController
     root_path: str
     build_programs: list[tuple[type[SourceObject], type[BuildProgram[SourceObject]]]]
@@ -318,14 +356,14 @@ class Environment:
     special_file_suffixes: dict[str, str]
 
     @property
-    def asset_path(self):
+    def asset_path(self) -> str:
         return os.path.join(self.root_path, "assets")
 
     @property
-    def temp_path(self):
+    def temp_path(self) -> str:
         return os.path.join(self.root_path, "temp")
 
-    def load_plugins(self):
+    def load_plugins(self) -> None:
         """Loads the plugins."""
         load_packages(self)
         initialize_plugins(self)
@@ -334,7 +372,7 @@ class Environment:
         """Loads the current config."""
         return Config(self.project.project_file)
 
-    def new_pad(self):
+    def new_pad(self) -> Pad:
         """Convenience function to create a database and pad."""
         from lektor.db import Database  # pylint: disable=import-outside-toplevel
 
@@ -342,18 +380,17 @@ class Environment:
 
     def is_uninteresting_source_name(self, filename: str) -> bool:
         """These files are ignored when sources are built into artifacts."""
-        fn = filename.lower()
-        if fn in SPECIAL_ARTIFACTS:
+        if filename.lower() in SPECIAL_ARTIFACTS:
             return False
-
         proj = self.project
-        if any_fnmatch(filename, INCLUDED_ASSETS + proj.included_assets):
-            # Included by the user's project config, thus not uninteresting.
+        include_patterns = chain(INCLUDED_ASSETS, proj.included_assets)
+        if any(fnmatch(filename, pat) for pat in include_patterns):
             return False
-        return any_fnmatch(filename, EXCLUDED_ASSETS + proj.excluded_assets)
+        exclude_patterns = chain(EXCLUDED_ASSETS, proj.excluded_assets)
+        return any(fnmatch(filename, pat) for pat in exclude_patterns)
 
     @staticmethod
-    def is_ignored_artifact(asset_name):
+    def is_ignored_artifact(asset_name: str) -> bool:
         """This is used by the prune tool to figure out which files in the
         artifact folder should be ignored.
         """
@@ -362,13 +399,32 @@ class Environment:
             return False
         return fn[:1] == "." or fn in IGNORED_FILES
 
-    def render_template(self, name, pad=None, this=None, values=None, alt=None):
-        ctx = self.make_default_tmpl_values(pad, this, values, alt, template=name)
-        return self.jinja_env.get_or_select_template(name).render(ctx)
+    def render_template(
+        self,
+        name: str | Iterable[str],
+        pad: Pad | None = None,
+        this: object | None = None,
+        values: TemplateValuesType | None = None,
+        alt: str | None = None,
+    ) -> str:
+        if isinstance(name, str):
+            template = self.jinja_env.get_template(name)
+        else:
+            assert isinstance(name, Iterable)  # Iterable[str]
+            template = self.jinja_env.select_template(name)
+        ctx = self.make_default_tmpl_values(
+            pad, this, values, alt, template=template.name
+        )
+        return template.render(ctx)
 
     def make_default_tmpl_values(
-        self, pad=None, this=None, values=None, alt=None, template=None
-    ):
+        self,
+        pad: Pad | None = None,
+        this: object | None = None,
+        values: TemplateValuesType | None = None,
+        alt: str | None = None,
+        template: str | None = None,
+    ) -> dict[str, Any]:
         values = dict(values or ())
 
         # If not provided, pick the alt from the provided "this" object.
@@ -400,12 +456,14 @@ class Environment:
         return values
 
     @staticmethod
-    def select_jinja_autoescape(filename):
+    def select_jinja_autoescape(filename: str | None) -> bool:
         if filename is None:
             return False
         return filename.endswith((".html", ".htm", ".xml", ".xhtml"))
 
-    def resolve_custom_url_path(self, obj, url_path):
+    def resolve_custom_url_path(
+        self, obj: Record, url_path: Sequence[str]
+    ) -> SourceObject | None:  # XXX: is annotation correct?
         for resolver in self.custom_url_resolvers:
             rv = resolver(obj, url_path)
             if rv is not None:
@@ -430,19 +488,21 @@ class Environment:
         #     cext = asset_cls.source_extension + asset_cls.artifact_extension
         #     self.special_file_suffixes[cext] = asset_cls.source_extension
 
-    def add_publisher(self, scheme, publisher):
+    def add_publisher(self, scheme: str, publisher: type[Publisher]) -> None:
         if scheme in self.publishers:
             raise RuntimeError('Scheme "%s" is already registered.' % scheme)
         self.publishers[scheme] = publisher
 
-    def add_type(self, type):
+    def add_type(self, type: builtins.type[Type]) -> None:
         name = type.name
         if name in self.types:
             raise RuntimeError('Type "%s" is already registered.' % name)
         self.types[name] = type
 
-    def virtualpathresolver(self, prefix):
-        def decorator(func):
+    def virtualpathresolver(
+        self, prefix: str
+    ) -> Callable[[VirtualPathResolver], VirtualPathResolver]:
+        def decorator(func: VirtualPathResolver) -> VirtualPathResolver:
             if prefix in self.virtual_sources:
                 raise RuntimeError('Prefix "%s" is already registered.' % prefix)
             self.virtual_sources[prefix] = func
@@ -450,10 +510,10 @@ class Environment:
 
         return decorator
 
-    def urlresolver(self, func):
+    def urlresolver(self, func: UrlResolver) -> UrlResolver:
         self.custom_url_resolvers.append(func)
         return func
 
-    def generator(self, func):
+    def generator(self, func: SourceGenerator) -> SourceGenerator:
         self.custom_generators.append(func)
         return func

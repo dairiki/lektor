@@ -1536,7 +1536,7 @@ class Database:
         attachment_type = raw_data["_attachment_type"]
         return attachment_classes.get(attachment_type, Attachment)
 
-    def new_pad(self):
+    def new_pad(self) -> Pad:
         """Creates a new pad object for this database."""
         return Pad(self)
 

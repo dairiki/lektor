@@ -153,7 +153,7 @@ def _check_dist_name(dist_name, plugin_id):
         )
 
 
-def initialize_plugins(env):
+def initialize_plugins(env: Environment) -> None:
     """Initializes the plugins for the environment."""
     for dist, ep in _find_plugins():
         plugin_id = ep.name
