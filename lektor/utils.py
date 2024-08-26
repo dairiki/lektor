@@ -13,6 +13,7 @@ import unicodedata
 import urllib.parse
 import uuid
 import warnings
+from collections import defaultdict
 from collections.abc import Hashable
 from contextlib import contextmanager
 from contextlib import suppress
@@ -24,11 +25,16 @@ from pathlib import PurePosixPath
 from typing import Any
 from typing import Callable
 from typing import ClassVar
+from typing import Generic
 from typing import Iterable
 from typing import Iterator
+from typing import Mapping
 from typing import overload
+from typing import Protocol
+from typing import Sequence
 from typing import TYPE_CHECKING
 from typing import TypeVar
+from typing import Union
 
 from jinja2 import is_undefined
 from markupsafe import Markup
@@ -49,6 +55,13 @@ if TYPE_CHECKING:
 _F = TypeVar("_F", bound=Callable[..., Any])
 _H = TypeVar("_H", bound=Hashable)
 _T = TypeVar("_T")
+_U = TypeVar("_U")
+_T_co = TypeVar("_T_co", covariant=True)
+
+
+class _MappingFactory(Protocol, Generic[_T, _U]):
+    def __call__(self, data: Iterable[tuple[_T, _U]], /) -> Mapping[_T, _U]:
+        ...
 
 
 is_windows = os.name == "nt"
@@ -209,7 +222,7 @@ def magic_split_ext(filename, ext_check=True):
     return basename, ext
 
 
-def iter_dotted_path_prefixes(dotted_path):
+def iter_dotted_path_prefixes(dotted_path: str) -> Iterator[tuple[str, str | None]]:
     pieces = dotted_path.split(".")
     if len(pieces) == 1:
         yield dotted_path, None
@@ -218,7 +231,7 @@ def iter_dotted_path_prefixes(dotted_path):
             yield ".".join(pieces[:x]), ".".join(pieces[x:])
 
 
-def resolve_dotted_value(obj, dotted_path):
+def resolve_dotted_value(obj: object | None, dotted_path: str) -> Any:
     node = obj
     for key in dotted_path.split("."):
         if isinstance(node, dict):
@@ -238,53 +251,95 @@ def resolve_dotted_value(obj, dotted_path):
     return node
 
 
-def decode_flat_data(itemiter, dict_cls=dict):
-    def _split_key(name):
-        result = name.split(".")
-        for idx, part in enumerate(result):
-            if part.isdigit():
-                result[idx] = int(part)
-        return result
+DecodedFlatDataType = Union[
+    # The key type should probably just be `str` rather than `str | int`,
+    # but here we match current behavior.
+    #
+    # Currently:
+    #     decode_flat_data([("1", "x"), ("a", "y")]) == {1: "x", "a": "y"}
+    # While:
+    #     decode_flat_data([("a", "x"), ("1", "y")])
+    # raises a TypeError
+    #
+    # They should probably both return {"1": "x", "a": "y"}
+    Mapping[Union[str, int], Union[_T, "DecodedFlatDataType[_T]"]],
+    Sequence[Union[_T, "DecodedFlatDataType[_T]"]],
+]
 
-    def _enter_container(container, key):
-        if key not in container:
-            return container.setdefault(key, dict_cls())
-        return container[key]
 
-    def _convert(container):
-        if _value_marker in container:
-            force_list = False
-            values = container.pop(_value_marker)
-            if container.pop(_list_marker, False):
-                force_list = True
-                values.extend(_convert(x[1]) for x in sorted(container.items()))
-            if not force_list and len(values) == 1:
-                values = values[0]
+def decode_flat_data(
+    itemiter: Iterable[tuple[str, _T_co]],
+    dict_cls: _MappingFactory[str | int, _T_co | DecodedFlatDataType[_T_co]] = dict,
+) -> DecodedFlatDataType[_T_co]:
 
-            if not container:
-                return values
-            return _convert(container)
-        if container.pop(_list_marker, False):
-            return [_convert(x[1]) for x in sorted(container.items())]
-        return dict_cls((k, _convert(v)) for k, v in container.items())
+    class _Node:
+        value: _T_co
+        subnodes: dict[str | int, "_Node"]
 
-    result = dict_cls()
+        def __init__(self):
+            self.subnodes = defaultdict(_Node)
+
+    top = _Node()
 
     for key, value in itemiter:
-        parts = _split_key(key)
-        if not parts:
-            continue
-        container = result
-        for part in parts:
-            last_container = container
-            container = _enter_container(container, part)
-            last_container[_list_marker] = isinstance(part, int)
-        container[_value_marker] = [value]
+        node = top
+        for part in key.split("."):
+            node = node.subnodes[part if not part.isdigit() else int(part)]
+        node.value = value
 
-    return _convert(result)
+    assert not hasattr(top, "value")
+
+    def _result(node: _Node) -> DecodedFlatDataType[_T_co] | _T_co:
+        has_value = hasattr(node, "value")
+        subnodes = node.subnodes
+
+        if has_value and not subnodes:
+            # NB: value ignored if subnodes
+            return node.value
+
+        last_key = next(reversed(subnodes.keys()), None)
+        force_list = isinstance(last_key, int)
+
+        # XXX: here we duplicate original behavior which ignores force_list
+        # if self has a value. Perhaps we should change this?
+        if force_list and not has_value:
+            # NB: note that this raises TypeError if subnodes has keys
+            # of mixed str and int types. This is what the original did.
+            return [_result(subnodes[key]) for key in sorted(subnodes)]
+
+        return dict_cls((key, _result(node_)) for key, node_ in subnodes.items())
+
+    rv = _result(top)
+    assert isinstance(rv, (Mapping, Sequence))
+    return rv
 
 
-def merge(a, b):
+@overload
+def merge(a: _T, b: None) -> _T:
+    ...
+
+
+@overload
+def merge(a: None, b: _T) -> _T:
+    ...
+
+
+@overload
+def merge(a: list[_T], b: list[_U]) -> list[_T | _U]:
+    ...
+
+
+@overload
+def merge(a: dict[str, _T], b: dict[str, _U]) -> dict[str, _T | _U]:
+    ...
+
+
+@overload
+def merge(a: _T, b: _U) -> _T:
+    ...
+
+
+def merge(a: Any, b: Any) -> Any:
     """Merges two values together."""
     if b is None and a is not None:
         return a

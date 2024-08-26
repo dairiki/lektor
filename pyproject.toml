@@ -197,7 +197,6 @@ warn_return_any = false
 # These are not checked at all
 module = [
     "lektor.cli",
-    "lektor.databags",
     "lektor.datamodel",
     "lektor.devcli",
     "lektor.editor",
@@ -217,6 +216,7 @@ ignore_errors = true
 module = [
     "lektor.admin.*",
     "lektor.build_programs",
+    "lektor.databags",
     "lektor.devserver",
     "lektor.imagetools.*",
     "lektor.markdown.*",
