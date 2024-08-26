@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import errno
 import os
+from typing import Sequence
+from typing import TYPE_CHECKING
+from typing import TypeVar
 
 from inifile import IniFile
 
@@ -11,12 +14,21 @@ from lektor.environment.expressions import FormatExpression
 from lektor.i18n import generate_i18n_kvs
 from lektor.i18n import get_i18n_block
 from lektor.i18n import I18nBlock
+from lektor.pagination import Paginatable
 from lektor.pagination import Pagination
 from lektor.reporter import reporter
 from lektor.types import builtin_types
 from lektor.types.base import RawValue
 from lektor.utils import bool_from_string
 from lektor.utils import slugify
+
+
+if TYPE_CHECKING:
+    from lektor.db import Query
+    from lektor.environment import Environment
+
+
+_Page = TypeVar("_Page", bound=Paginatable)
 
 
 class ChildConfig:
@@ -50,7 +62,14 @@ class ChildConfig:
 
 
 class PaginationConfig:
-    def __init__(self, env, enabled=None, per_page=None, url_suffix=None, items=None):
+    def __init__(
+        self,
+        env: Environment,
+        enabled: bool | None = None,
+        per_page: int | None = None,
+        url_suffix: str | None = None,
+        items: str | None = None,
+    ):
         self.env = env
         if enabled is None:
             enabled = False
@@ -67,20 +86,20 @@ class PaginationConfig:
             url_suffix = "page"
         self.url_suffix = url_suffix
         self.items = items
-        self._items_tmpl = None
+        self._items_tmpl: tuple[str, Expression] | None = None
 
-    def count_total_items(self, record):
+    def count_total_items(self, record: Paginatable) -> int:
         """Counts the number of items over all pages."""
         return self.get_pagination_query(record).count()
 
-    def count_pages(self, record):
+    def count_pages(self, record: Paginatable) -> int:
         """Returns the total number of pages for the children of a record."""
         total = self.count_total_items(record)
         npages = (total + self.per_page - 1) // self.per_page
         # Even when there are no children, we want at least one page
         return max(npages, 1)
 
-    def slice_query_for_page(self, record, page):
+    def slice_query_for_page(self, record: Paginatable, page: int | None) -> Query:
         """Slices the query so it returns the children for a given page."""
         query = self.get_pagination_query(record)
         if not self.enabled or page is None:
@@ -88,7 +107,7 @@ class PaginationConfig:
         return query.limit(self.per_page).offset((page - 1) * self.per_page)
 
     @staticmethod
-    def get_record_for_page(record, page_num):
+    def get_record_for_page(record: _Page, page_num: int) -> _Page:
         """Given a normal record this one returns the version specific
         for a page.
         """
@@ -108,7 +127,7 @@ class PaginationConfig:
         pad.cache.remember(rv)
         return rv
 
-    def match_pagination(self, record, url_path):
+    def match_pagination(self, record: _Page, url_path: Sequence[str]) -> _Page | None:
         """Matches the pagination from the URL path."""
         if not self.enabled:
             return None
@@ -132,12 +151,12 @@ class PaginationConfig:
             return rv
         return None
 
-    def get_pagination_controller(self, record):
+    def get_pagination_controller(self, record: _Page) -> Pagination[_Page]:
         if not self.enabled:
             raise RuntimeError("Pagination is disabled")
         return Pagination(record, self)
 
-    def get_pagination_query(self, record):
+    def get_pagination_query(self, record: Paginatable) -> Query:
         items_expr = self.items
         if items_expr is None:
             return record.children
@@ -146,7 +165,7 @@ class PaginationConfig:
 
         return self._items_tmpl[1].evaluate(record.pad, this=record)
 
-    def to_json(self):
+    def to_json(self) -> dict[str, str | bool | int | None]:
         return {
             "enabled": self.enabled,
             "per_page": self.per_page,

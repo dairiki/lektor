@@ -1,24 +1,75 @@
 from __future__ import annotations
 
+from typing import cast
+from typing import Container
+from typing import Iterable
+from typing import Iterator
+from typing import overload
 
-def _line_is_dashes(line):
+
+def _line_is_dashes(line: str) -> int:
     line = line.strip()
     return line == "-" * len(line) and len(line) >= 3
 
 
-def _process_buf(buf):
-    for idx, line in enumerate(buf):
-        if _line_is_dashes(line):
-            line = line[1:]
-        buf[idx] = line
+def _process_buf(buf: Iterable[str]) -> list[str]:
+    # remove leading dashes in dashed lines
+    unescaped = [line[1:] if _line_is_dashes(line) else line for line in buf]
+    if unescaped:
+        last_line = unescaped[-1]
+        if last_line.endswith("\n"):
+            unescaped[-1] = last_line[:-1]
 
-    if buf and buf[-1][-1:] == "\n":
-        buf[-1] = buf[-1][:-1]
-
-    return buf[:]
+    return unescaped
 
 
-def tokenize(iterable, interesting_keys=None, encoding=None):
+@overload
+def tokenize(
+    iterable: Iterable[str], interesting_keys: Container[str], encoding: None = None
+) -> Iterator[tuple[str, list[str] | None]]:
+    ...
+
+
+@overload
+def tokenize(
+    iterable: Iterable[bytes],
+    interesting_keys: Container[str],
+    encoding: str,
+) -> Iterator[tuple[str, list[str] | None]]:
+    ...
+
+
+@overload
+def tokenize(
+    iterable: Iterable[str], interesting_keys: None = None, encoding: None = None
+) -> Iterator[tuple[str, list[str]]]:
+    ...
+
+
+@overload
+def tokenize(
+    iterable: Iterable[bytes],
+    interesting_keys: None,
+    encoding: str,
+) -> Iterator[tuple[str, list[str]]]:
+    ...
+
+
+@overload
+def tokenize(
+    iterable: Iterable[bytes],
+    *,
+    interesting_keys: None = None,
+    encoding: str,
+) -> Iterator[tuple[str, list[str]]]:
+    ...
+
+
+def tokenize(
+    iterable: Iterable[str] | Iterable[bytes],
+    interesting_keys: Container[str] | None = None,
+    encoding: str | None = None,
+) -> Iterator[tuple[str, list[str] | None]]:
     """This tokenizes an iterable of newlines as bytes into key value
     pairs out of the lektor bulk format.  By default it will process all
     fields, but optionally it can skip values of uninteresting keys and
@@ -33,7 +84,12 @@ def tokenize(iterable, interesting_keys=None, encoding=None):
     want_newline = False
     is_interesting = True
 
-    def _flush_item():
+    if encoding is None:
+        lines = cast(Iterable[str], iterable)
+    else:
+        lines = (x.decode(encoding, "replace") for x in cast(Iterable[bytes], iterable))
+
+    def _flush_item() -> tuple[str, list[str] | None]:
         the_key = key[0]
         if not is_interesting:
             value = None
@@ -42,10 +98,7 @@ def tokenize(iterable, interesting_keys=None, encoding=None):
         del key[:], buf[:]
         return the_key, value
 
-    if encoding is not None:
-        iterable = (x.decode(encoding, "replace") for x in iterable)
-
-    for line in iterable:
+    for line in lines:
         line = line.rstrip("\r\n") + "\n"
 
         if line.rstrip() == "---":
@@ -79,30 +132,46 @@ def tokenize(iterable, interesting_keys=None, encoding=None):
         yield _flush_item()
 
 
-def serialize(iterable, encoding=None):
+@overload
+def serialize(
+    iterable: Iterable[tuple[str, str]], encoding: None = None
+) -> Iterator[str]:
+    ...
+
+
+@overload
+def serialize(iterable: Iterable[tuple[str, str]], encoding: str) -> Iterator[bytes]:
+    ...
+
+
+def serialize(
+    iterable: Iterable[tuple[str, str]], encoding: str | None = None
+) -> Iterator[str] | Iterator[bytes]:
     """Serializes an iterable of key value pairs into a stream of
     string chunks.  If an encoding is provided, it will be encoded into that.
 
     This is primarily used by the editor to write back data to a source file.
     """
 
-    def _produce(item, escape=False):
-        if escape:
-            if _line_is_dashes(item):
-                item = "-" + item
-        if encoding is not None:
-            item = item.encode(encoding)
-        return item
+    if encoding is not None:
+        for line in serialize(iterable):
+            yield line.encode(encoding)
+        return
+
+    def _escape(line: str) -> str:
+        if _line_is_dashes(line):
+            return "-" + line
+        return line
 
     for idx, (key, value) in enumerate(iterable):
         value = value.replace("\r\n", "\n").replace("\r", "\n")
         if idx > 0:
-            yield _produce("---\n")
+            yield "---\n"
         if "\n" in value or value.strip("\t ") != value:
-            yield _produce(key + ":\n")
-            yield _produce("\n")
-            for line in value.splitlines(True):
-                yield _produce(line, escape=True)
-            yield _produce("\n")
+            yield key + ":\n"
+            yield "\n"
+            for line in value.splitlines(keepends=True):
+                yield _escape(line)
+            yield "\n"
         else:
-            yield _produce(f"{key}: {value}\n")
+            yield f"{key}: {value}\n"

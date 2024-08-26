@@ -4,29 +4,39 @@ import getpass
 import os
 import re
 import shutil
+import sys
 from contextlib import contextmanager
 from datetime import datetime
 from functools import partial
-from importlib import import_module
 from subprocess import PIPE
 from subprocess import run
 from tempfile import TemporaryDirectory
+from typing import Any
+from typing import Dict
+from typing import Iterator
+from typing import NoReturn
+from typing import TYPE_CHECKING
+from typing import Union
 
 import click
 from jinja2 import Environment
 from jinja2 import PackageLoader
 
+from lektor.project import Project
 from lektor.utils import locate_executable
 from lektor.utils import slugify
 
-pwd = import_module("pwd") if os.name != "nt" else None
+if TYPE_CHECKING:
+    from _typeshed import StrPath
 
 
 _var_re = re.compile(r"@([^@]+)@")
 
+TemplateContext = Dict[str, Union[str, int]]
+
 
 class Generator:
-    def __init__(self, base):
+    def __init__(self, base: str):
         self.question = 0
         self.jinja_env = Environment(
             loader=PackageLoader("lektor", "quickstart-templates/%s" % base),
@@ -39,18 +49,19 @@ class Generator:
             comment_start_string="/**",
             comment_end_string="**/",
         )
-        self.options = {}
         # term width in [1, 78]
         self.term_width = min(max(shutil.get_terminal_size()[0], 1), 78)
         self.e = click.secho
         self.w = partial(click.wrap_text, width=self.term_width)
 
     @staticmethod
-    def abort(message):
-        click.echo("Error: %s" % message, err=True)
+    def abort(message: str) -> NoReturn:
+        click.echo(f"Error: {message}", err=True)
         raise click.Abort()
 
-    def prompt(self, text, default=None, info=None):
+    def prompt(
+        self, text: str, default: Any | None = None, info: str | None = None
+    ) -> Any:
         self.question += 1
         self.e("")
         self.e("Step %d:" % self.question, fg="yellow")
@@ -62,23 +73,23 @@ class Generator:
             return click.confirm(text, default=default)
         return click.prompt(text, default=default, show_default=True)
 
-    def title(self, title):
+    def title(self, title: str) -> None:
         self.e(title, fg="cyan")
         self.e("=" * len(title), fg="cyan")
         self.e("")
 
-    def warn(self, text):
+    def warn(self, text: str) -> None:
         self.e(self.w(text), fg="magenta")
 
-    def text(self, text):
+    def text(self, text: str) -> None:
         self.e(self.w(text))
 
-    def confirm(self, prompt):
+    def confirm(self, prompt: str) -> None:
         self.e("")
         click.confirm(prompt, default=True, abort=True, prompt_suffix=" ")
 
     @contextmanager
-    def make_target_directory(self, path):
+    def make_target_directory(self, path: StrPath) -> Iterator[str]:
         here = os.path.abspath(os.getcwd())
         path = os.path.abspath(path)
         if here != path:
@@ -105,13 +116,15 @@ class Generator:
                 )
 
     @staticmethod
-    def expand_filename(base, ctx, template_filename):
-        def _repl(match):
-            return ctx[match.group(1)]
+    def expand_filename(
+        base: StrPath, ctx: TemplateContext, template_filename: str
+    ) -> str:
+        def _repl(match: re.Match[str]) -> str:
+            return str(ctx[match.group(1)])
 
         return os.path.join(base, _var_re.sub(_repl, template_filename))[:-3]
 
-    def run(self, ctx, path):
+    def run(self, ctx: TemplateContext, path: StrPath) -> None:
         with self.make_target_directory(path) as scratch:
             for template in self.jinja_env.list_templates():
                 if not template.endswith(".in"):
@@ -131,17 +144,31 @@ class Generator:
 
 def get_default_author() -> str:
     """Attempt to guess an the name of the current user."""
-    if pwd is not None:
-        try:
-            pw_gecos = pwd.getpwuid(os.getuid()).pw_gecos
-        except KeyError:
-            pass
-        else:
-            full_name = pw_gecos.split(",", 1)[0].strip()
-            if full_name:
-                return full_name
-
+    if gecos_name := _get_gecos_name():
+        return gecos_name
     return getpass.getuser()
+
+
+# pylint: disable-next=consider-using-in
+if sys.platform != "win32" and sys.platform != "cygwin":
+
+    def _get_gecos_name() -> str | None:
+        # pylint: disable=import-outside-toplevel
+        try:
+            import pwd
+
+            pw = pwd.getpwuid(os.getuid())
+        except (ImportError, KeyError):
+            return None
+
+        if full_name := pw.pw_gecos.split(",", 1)[0].strip():
+            return full_name
+        return None
+
+else:
+
+    def _get_gecos_name() -> str | None:
+        return None
 
 
 def get_default_author_email() -> str | None:
@@ -166,7 +193,7 @@ def get_default_author_email() -> str | None:
     return None
 
 
-def project_quickstart(defaults=None):
+def project_quickstart(defaults: dict[str, str] | None = None) -> None:
     if not defaults:
         defaults = {}
 
@@ -233,7 +260,9 @@ def project_quickstart(defaults=None):
     )
 
 
-def plugin_quickstart(defaults=None, project=None):
+def plugin_quickstart(
+    defaults: dict[str, str] | None = None, project: Project | None = None
+) -> None:
     if defaults is None:
         defaults = {}
 
@@ -296,7 +325,9 @@ def plugin_quickstart(defaults=None, project=None):
     )
 
 
-def theme_quickstart(defaults=None, project=None):
+def theme_quickstart(
+    defaults: dict[str, str] | None = None, project: Project | None = None
+) -> None:
     if defaults is None:
         defaults = {}
 

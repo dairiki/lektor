@@ -627,7 +627,7 @@ from .devcli import cli as devcli  # pylint: disable=wrong-import-position
 cli.add_command(devcli, "dev")
 
 
-def main(as_module=False):
+def main(as_module: bool = False) -> None:
     args = sys.argv[1:]
     name = None
 

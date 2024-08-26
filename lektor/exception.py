@@ -1,21 +1,21 @@
 from __future__ import annotations
 
+from typing import cast
+
 
 class LektorException(Exception):
-    def __init__(self, message=None):
-        Exception.__init__(self)
-        if isinstance(message, bytes):
-            message = message.decode("utf-8", "replace")
-        self.message = message
+    def __init__(self, message: str | None = None):
+        super().__init__(message)
 
-    def to_json(self):
+    @property
+    def message(self) -> str:
+        return cast(str, self.args[0])
+
+    def to_json(self) -> dict[str, str]:
         return {
             "type": self.__class__.__name__,
             "message": self.message,
         }
 
-    def __str__(self):
-        return str(self.message)
-
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.message!r})"

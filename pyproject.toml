@@ -196,20 +196,13 @@ disallow_untyped_calls = false
 warn_return_any = false
 
 module = [
-    "lektor.__main__",
     "lektor.cli",
     "lektor.cli_utils",
     "lektor.datamodel",
     "lektor.db",
     "lektor.devcli",
     "lektor.editor",
-    "lektor.exception",
-    "lektor.filecontents",
-    "lektor.i18n",
-    "lektor.metaformat",
-    "lektor.pagination",
     "lektor.publisher",
-    "lektor.quickstart",
     "lektor.sourceobj",
     "lektor.sourcesearch",
     "lektor.types.*",

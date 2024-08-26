@@ -272,10 +272,9 @@ def decode_flat_data(
     itemiter: Iterable[tuple[str, _T_co]],
     dict_cls: _MappingFactory[str | int, _T_co | DecodedFlatDataType[_T_co]] = dict,
 ) -> DecodedFlatDataType[_T_co]:
-
     class _Node:
         value: _T_co
-        subnodes: dict[str | int, "_Node"]
+        subnodes: dict[str | int, _Node]  # pylint: disable=undefined-variable
 
         def __init__(self):
             self.subnodes = defaultdict(_Node)
@@ -356,7 +355,7 @@ def merge(a: Any, b: Any) -> Any:
     return a
 
 
-def slugify(text):
+def slugify(text: str) -> str:
     """
     A wrapper around python-slugify which preserves file extensions
     and forward slashes.

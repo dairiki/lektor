@@ -4,6 +4,7 @@ import json
 import os
 import re
 from typing import Dict
+from typing import Iterator
 from typing import Literal
 from typing import Mapping
 from typing import MutableMapping
@@ -21,6 +22,9 @@ class I18nBlock(Dict[str, str]):
     """
 
 
+Translations = Dict[str, str]
+
+
 translations_path = os.path.join(
     os.path.abspath(os.path.dirname(__file__)), "translations"
 )
@@ -29,42 +33,46 @@ KNOWN_LANGUAGES = list(
 )
 
 
-translations = {}
+translations: dict[str, Translations] = {}
+
 for _lang in KNOWN_LANGUAGES:
     with open(os.path.join(translations_path, _lang + ".json"), "rb") as f:
         translations[_lang] = json.load(f)
 
 
-def get_translations(language):
+def get_translations(language: str) -> Translations | None:
     """Looks up the translations for a given language."""
     return translations.get(language)
 
 
-def is_valid_language(lang):
+def is_valid_language(lang: str) -> bool:
     """Verifies a language is known and valid."""
     return lang in KNOWN_LANGUAGES
 
 
-def get_default_lang():
+def get_default_lang() -> str:
     """Returns the default language the system should use."""
-    for key in "LANGUAGE", "LC_ALL", "LC_CTYPE", "LANG":
-        value = os.environ.get(key)
-        if not value:
-            continue
-        lang = value.split("_")[0].lower()
-        if is_valid_language(lang):
-            return lang
-    return "en"
+
+    def lang_for_locale(locale: str) -> str:
+        lang, _, _ = locale.partition("_")
+        return lang.lower()
+
+    langs_from_locales = (
+        lang
+        for envvar in ("LANGUAGE", "LC_ALL", "LC_CTYPE", "LANG")
+        if (
+            (locale := os.environ.get(envvar))
+            and is_valid_language(lang := lang_for_locale(locale))
+        )
+    )
+    return next(langs_from_locales, "en")
 
 
-def load_i18n_block(key):
+def load_i18n_block(key: str) -> I18nBlock:
     """Looks up an entire i18n block from a known translation."""
-    rv = {}
-    for lang in KNOWN_LANGUAGES:
-        val = translations.get(lang, {}).get(key)
-        if val is not None:
-            rv[lang] = val
-    return rv
+    return I18nBlock(
+        (lang, val) for lang, trans in translations.items() if (val := trans.get(key))
+    )
 
 
 @overload
@@ -104,7 +112,7 @@ def get_i18n_block(
     return I18nBlock((lang, data[key_]) for key_, lang in key_map)
 
 
-def generate_i18n_kvs(**opts):
+def generate_i18n_kvs(**opts: str) -> Iterator[tuple[str, str]]:
     """Generates key-value pairs based on the kwargs passed into this function.
     For every key ending in "_i18n", its corresponding value will be translated
     and returned once for every language that has a known translation.
