@@ -832,16 +832,13 @@ def comma_delimited(s: str) -> Iterator[str]:
             yield stripped
 
 
-def process_extra_flags(flags):
+def process_extra_flags(flags: dict[str, str] | Iterable[str] | None) -> dict[str, str]:
     if isinstance(flags, dict):
         return flags
-    rv = {}
+    rv: dict[str, str] = {}
     for flag in flags or ():
-        if ":" in flag:
-            k, v = flag.split(":", 1)
-            rv[k] = v
-        else:
-            rv[flag] = flag
+        key, sep, value = flag.partition(":")
+        rv[key] = value if sep else key
     return rv
 
 

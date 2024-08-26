@@ -4,9 +4,13 @@ import inspect
 import os
 import sys
 import warnings
+from collections.abc import ValuesView
 from importlib import metadata
 from pathlib import Path
 from typing import Any
+from typing import cast
+from typing import Dict
+from typing import Iterator
 from typing import Sequence
 from typing import TYPE_CHECKING
 from weakref import ref as weakref
@@ -18,9 +22,13 @@ from lektor.utils import process_extra_flags
 
 if TYPE_CHECKING:
     from lektor.environment import Environment
+    from lektor.environment.config import Config
 
 
-def get_plugin(plugin_id_or_class, env=None):
+def get_plugin(
+    plugin_id_or_class: str | type[Plugin],
+    env: Environment | None = None,
+) -> Plugin:
     """Looks up the plugin instance by id or class."""
     if env is None:
         ctx = get_ctx()
@@ -30,8 +38,12 @@ def get_plugin(plugin_id_or_class, env=None):
                 "was passed to the function."
             )
         env = ctx.env
-    plugin_id = env.plugin_ids_by_class.get(plugin_id_or_class, plugin_id_or_class)
+
     try:
+        if isinstance(plugin_id_or_class, str):
+            plugin_id = plugin_id_or_class
+        else:
+            plugin_id = env.plugin_ids_by_class[plugin_id_or_class]
         return env.plugins[plugin_id]
     except KeyError as error:
         raise LookupError("Plugin %r not found" % plugin_id) from error
@@ -43,28 +55,30 @@ class Plugin:
     name = "Your Plugin Name"
     description = "Description goes here"
 
-    __dist: metadata.Distribution = None
+    _dist: metadata.Distribution | None = None
 
-    def __init__(self, env, id):
+    def __init__(self, env: Environment, id: str):
         self._env = weakref(env)
         self.id = id
 
     @property
-    def env(self):
+    def env(self) -> Environment:
         rv = self._env()
         if rv is None:
             raise RuntimeError("Environment went away")
         return rv
 
     @property
-    def version(self):
-        if self.__dist is not None:
-            return self.__dist.version
+    def version(self) -> str | None:
+        if self._dist is not None:
+            return self._dist.version
         return None
 
     @property
-    def path(self) -> str:
+    def path(self) -> str | None:
         mod = sys.modules[self.__class__.__module__.split(".", maxsplit=1)[0]]
+        if mod.__file__ is None:
+            return None
         path = Path(mod.__file__).resolve().parent
         package_cache = self.env.project.get_package_cache_path()
         try:
@@ -77,10 +91,10 @@ class Plugin:
         return os.fspath(path)
 
     @property
-    def import_name(self):
+    def import_name(self) -> str:
         return self.__class__.__module__ + ":" + self.__class__.__name__
 
-    def get_lektor_config(self):
+    def get_lektor_config(self) -> Config:
         """Returns the global config."""
         ctx = get_ctx()
         if ctx is not None:
@@ -90,18 +104,20 @@ class Plugin:
         return cfg
 
     @property
-    def config_filename(self):
+    def config_filename(self) -> str:
         """The filename of the plugin specific config file."""
         return os.path.join(self.env.root_path, "configs", self.id + ".ini")
 
-    def get_config(self, fresh=False):
+    def get_config(self, fresh: bool = False) -> IniFile:
         """Returns the config specific for this plugin.  By default this
         will be cached for the current build context but this can be
         disabled by passing ``fresh=True``.
         """
         ctx = get_ctx()
         if ctx is not None and not fresh:
-            cache = ctx.cache.setdefault(__name__ + ":configs", {})
+            cache = cast(
+                Dict[str, IniFile], ctx.cache.setdefault(__name__ + ":configs", {})
+            )
             cfg = cache.get(self.id)
             if cfg is None:
                 cfg = IniFile(self.config_filename)
@@ -112,10 +128,10 @@ class Plugin:
             ctx.record_dependency(self.config_filename)
         return cfg
 
-    def emit(self, event, **kwargs):
+    def emit(self, event: str, **kwargs: Any) -> dict[str, Any]:
         return self.env.plugin_controller.emit(self.id + "-" + event, **kwargs)
 
-    def to_json(self):
+    def to_json(self) -> dict[str, str | None]:
         return {
             "id": self.id,
             "name": self.name,
@@ -126,7 +142,7 @@ class Plugin:
         }
 
 
-def _find_plugins():
+def _find_plugins() -> Iterator[tuple[metadata.Distribution, metadata.EntryPoint]]:
     """Find all available plugins.
 
     Returns an interator of (distribution, entry_point) pairs.
@@ -138,7 +154,7 @@ def _find_plugins():
                 yield dist, ep
 
 
-def _check_dist_name(dist_name, plugin_id):
+def _check_dist_name(dist_name: str, plugin_id: str) -> None:
     """Check that plugin comes from a validly named distribution.
 
     Raises RuntimeError if distribution name is not of the form
@@ -176,7 +192,7 @@ class PluginController:
         self.extra_flags = extra_flags
 
     @property
-    def env(self):
+    def env(self) -> Environment:
         rv = self._env()
         if rv is None:
             raise RuntimeError("Environment went away")
@@ -196,11 +212,11 @@ class PluginController:
         # the plugin version.  For reasons of backward compatibility, we don't want to
         # change the signature of the constructor, so we stick it in a private attribute
         # here.
-        plugin._Plugin__dist = dist
+        plugin._dist = dist
         env.plugins[plugin_id] = plugin
         env.plugin_ids_by_class[plugin_cls] = plugin_id
 
-    def iter_plugins(self):
+    def iter_plugins(self) -> ValuesView[Plugin]:
         # XXX: sort?
         return self.env.plugins.values()
 

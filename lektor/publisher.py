@@ -45,8 +45,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from lektor.environment import Environment
 
 
-def _parse_query(query: str, **kwargs: Any) -> MultiDict[str, str]:
-    return MultiDict(urllib.parse.parse_qsl(query, **kwargs))
+def _parse_query(query: str, keep_blank_values: bool = False) -> MultiDict[str, str]:
+    return MultiDict(urllib.parse.parse_qsl(query, keep_blank_values=keep_blank_values))
 
 
 def _ascii_host(host: str) -> str:
