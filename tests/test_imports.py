@@ -4,6 +4,8 @@ Here we import each module by itself, one at a time, each in a new
 python interpreter.
 
 """
+from __future__ import annotations
+
 import pkgutil
 import sys
 from subprocess import run

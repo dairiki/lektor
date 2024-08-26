@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 import re
 import threading
-from typing import Union
 
 import pytest
 from markupsafe import Markup
@@ -393,7 +394,7 @@ class TestMarkdown:
         assert markdown.__html__().rstrip() == "<p>text</p>"
 
 
-def _normalize_html(output: Union[str, Markup]) -> str:
+def _normalize_html(output: str | Markup) -> str:
     html = str(output).strip()
     html = html.replace("&copy;", "©")
     html = re.sub(r"(<img [^>]*?)\s*/>", r"\1>", html)

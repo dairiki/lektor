@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 class LektorException(Exception):
     def __init__(self, message=None):
         Exception.__init__(self)

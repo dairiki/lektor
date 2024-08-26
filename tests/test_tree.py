@@ -1,4 +1,6 @@
-# Tests for lektor.db.Tree and related classes.
+"""Tests for lektor.db.Tree and related classes."""
+from __future__ import annotations
+
 import re
 import shutil
 from inspect import cleandoc

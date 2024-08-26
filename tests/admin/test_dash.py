@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from wsgiref.util import shift_path_info
 
 import pytest

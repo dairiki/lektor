@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from inspect import cleandoc
 from io import BytesIO

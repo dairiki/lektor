@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 class Pagination:
     def __init__(self, record, pagination_config):
         #: the pagination config
