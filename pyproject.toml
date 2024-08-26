@@ -235,6 +235,7 @@ module = [
     "lektor.packages",
     "lektor.reporter",
     "lektor.typing",
+    "lektor.watcher",
     "tests.test_packages",
 ]
 disallow_untyped_defs = true

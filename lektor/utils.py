@@ -712,7 +712,7 @@ def format_lat_long(lat=None, long=None, secs=True):
     return ", ".join(rv)
 
 
-def get_cache_dir():
+def get_cache_dir() -> str:
     if is_windows:
         folder = os.environ.get("LOCALAPPDATA")
         if folder is None:
