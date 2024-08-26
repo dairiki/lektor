@@ -228,6 +228,7 @@ disallow_untyped_defs = true
 # These modules are "fully typechecked"
 module = [
     "lektor.assets",
+    "lektor.buildfailures",
     "lektor.compat",
     "lektor.constants",
     "lektor.environment.config",
