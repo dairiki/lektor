@@ -7,6 +7,7 @@ import sys
 from importlib.util import module_from_spec
 from importlib.util import spec_from_file_location
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import Mock
 
 import pytest
@@ -110,7 +111,7 @@ def test_initialize_builds_frontend(frontend_build_hook, tmp_root):
     assert app_js.stat().st_size > 1024
 
 
-def import_module_from_file(module_name: str, path: str) -> None:
+def import_module_from_file(module_name: str, path: str) -> ModuleType:
     """Import a module or package from a specific source (``.py``) file
 
     This bypasses the normal search of ``sys.path``, etc., directly

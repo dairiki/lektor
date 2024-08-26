@@ -11,6 +11,7 @@ from lektor.reporter import BufferReporter
 @pytest.fixture
 def pad(data_path, save_sys_path):
     proj = Project.from_path(data_path / "ünicöde-project")
+    assert proj is not None
     return proj.make_env().new_pad()
 
 
@@ -44,9 +45,6 @@ def test_bad_file_ignored(pad, builder):
         builder.build(record)
         failures = reporter.get_failures()
         assert len(failures) == 1
-        exc_info = failures[0]["exc_info"]
-        assert exc_info[0] is BuildError
-        assert (
-            "The URL for this record contains non "
-            "ASCII characters" in exc_info[1].message
-        )
+        exc = failures[0]["exc_info"][1]
+        assert isinstance(exc, BuildError)
+        assert "The URL for this record contains non ASCII characters" in exc.message

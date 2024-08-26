@@ -4,6 +4,7 @@ import datetime
 import io
 from fractions import Fraction
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pytest import approx
@@ -150,7 +151,7 @@ NULL_EXIF_INFO = {
     "shutter_speed": None,
 }
 
-TEST_IMAGE_EXIF_INFO = {
+TEST_IMAGE_EXIF_INFO: dict[Path, dict[str, Any]] = {
     DEMO_PROJECT / "test.jpg": TEST_JPG_EXIF_INFO,
     DEMO_PROJECT / "test-sof-last.jpg": TEST_JPG_EXIF_INFO,
     DEMO_PROJECT / "test-progressive.jpg": NULL_EXIF_INFO,

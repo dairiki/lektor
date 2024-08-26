@@ -108,6 +108,7 @@ def test_deploy_extra_flag(project_cli_runner, mocker):
 def project_info_data(project_cli_runner):
     tree_dir = os.getcwd()
     project = Project.from_path(tree_dir)
+    assert project is not None
     return {
         "name": "Demo Project",
         "project_file": os.path.join(tree_dir, "Website.lektorproject"),
@@ -143,6 +144,7 @@ def test_project_info_path_flags(project_cli_runner, flag, project_info_data):
 
 def test_project_info_json(project_cli_runner):
     project = Project.from_path(os.getcwd())
+    assert project is not None
     result = project_cli_runner.invoke(cli, ["project-info", "--json"])
     assert json.loads(result.stdout) == project.to_json()
 

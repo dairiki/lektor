@@ -32,7 +32,9 @@ def project_path(tmp_path_factory, data_path):
 
 @pytest.fixture
 def pad(project_path, save_sys_path):
-    return Project.from_path(project_path).make_env().new_pad()
+    project = Project.from_path(project_path)
+    assert project is not None
+    return project.make_env().new_pad()
 
 
 @pytest.fixture(params=["/", "/static", "/static/demo.css", "/TEST.TXT"])
@@ -55,7 +57,9 @@ def asset(pad, asset_path):
 def test_get_asset(pad, parent_path, child_name):
     parent = pad.get_asset(parent_path) if parent_path is not None else None
     with pytest.deprecated_call(match=r"\bget_asset\b.*\bdeprecated\b") as warnings:
-        assert get_asset(pad, child_name, parent=parent).name == child_name
+        asset = get_asset(pad, child_name, parent=parent)
+        assert asset is not None
+        assert asset.name == child_name
     assert all(warning.filename == __file__ for warning in warnings)
 
 

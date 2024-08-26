@@ -45,6 +45,7 @@ def test_ssh_key_file_returns_none():
 def test_ssh_key_file_creates_key(prefix, key_type):
     credentials = {"key": prefix + "".join(["1234567890abcdef"] * 7)}
     with _ssh_key_file(credentials) as key_file:
+        assert key_file is not None
         assert Path(key_file).read_text() == (  # pylint: disable=unspecified-encoding
             f"-----BEGIN {key_type} PRIVATE KEY-----\n"
             "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef\n"
@@ -363,8 +364,7 @@ def publish_ghpages(work_tree, clean_git_environ, no_scary_output):
 
     def GitRepo_publish_ghpages(*args, **kwargs):
         with GitRepo(work_tree) as repo:
-            rv = yield from repo.publish_ghpages(*args, **kwargs)
-            return rv
+            yield from repo.publish_ghpages(*args, **kwargs)
 
     return GitRepo_publish_ghpages
 
@@ -633,7 +633,7 @@ def test_publish_old_plugin(env, output_path, mocker):
 
     class OldPublisher(Publisher):
         # pylint: disable=signature-differs
-        def publish(self, target_url, credentials, **extra):
+        def publish(self, target_url, credentials, **extra):  # type: ignore[override]
             return target_url
 
     env.add_publisher("publishtest", OldPublisher)

@@ -34,6 +34,7 @@ def no_alt_pad(tmp_path_factory, data_path):
                 child.unlink()
 
     project = Project.from_path(no_alt_project)
+    assert project is not None
     with restore_import_state():
         return project.make_env().new_pad()
 

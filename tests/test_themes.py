@@ -213,6 +213,7 @@ class BuiltAssetsReporter(Reporter):
         self.built_assets = []
 
     def start_artifact_build(self, is_current):
+        assert self.current_artifact is not None
         source_obj = self.current_artifact.source_obj
         if isinstance(source_obj, Asset):
             self.built_assets.append(source_obj)

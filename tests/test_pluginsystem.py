@@ -8,6 +8,9 @@ from importlib import metadata
 from importlib.abc import Loader
 from importlib.machinery import ModuleSpec
 from pathlib import Path
+from typing import Any
+from typing import TYPE_CHECKING
+from typing import TypedDict
 from unittest import mock
 
 import pytest
@@ -21,22 +24,30 @@ from lektor.pluginsystem import get_plugin
 from lektor.pluginsystem import Plugin
 from lektor.pluginsystem import PluginController
 
+if TYPE_CHECKING:
+    from _typeshed import Incomplete
+
 
 class DummyPlugin(Plugin):
     name = "Dummy Plugin"
     description = "For testing"
 
-    # DummyPlugin.calls is test-local (see fixture dummy_plugin_calls, below)
-    calls = []
+    class Call(TypedDict, total=False):
+        event: str
+        extra_flags: dict[str, str] | None
+        kwargs: dict[str, Any]
 
-    def __getattr__(self, name):
+    # DummyPlugin.calls is test-local (see fixture dummy_plugin_calls, below)
+    calls: list[Call] = []
+
+    def __getattr__(self, name: str) -> Incomplete:
         if not name.startswith("on_"):
             raise AttributeError(name)
 
         event = name[3:].replace("_", "-")
 
-        def hook(extra_flags, **kwargs):
-            call = {
+        def hook(extra_flags: dict[str, str], **kwargs: Any) -> str:
+            call: DummyPlugin.Call = {
                 "event": event,
                 "extra_flags": extra_flags,
                 "kwargs": kwargs,
@@ -76,11 +87,12 @@ class DummyDistribution(metadata.Distribution):
         ),
     }
 
-    # Allow overriding inherited properties with class attributes
-    metadata = None
-
     def __init__(self, metadata):
-        self.metadata = metadata
+        self._metadata = metadata
+
+    @property
+    def metadata(self):
+        return self._metadata
 
     def read_text(self, filename):
         return self._files.get(filename)
@@ -112,7 +124,7 @@ class DummyPluginFinder(metadata.DistributionFinder):
 
     def find_distributions(
         self, context: metadata.DistributionFinder.Context | None = None
-    ):
+    ) -> list[metadata.Distribution]:
         return [self.distribution]
 
 

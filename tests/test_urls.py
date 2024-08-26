@@ -360,7 +360,7 @@ def test_url_with_slash_slug(pad):
 
 
 class DummyVirtualSource(VirtualSourceObject):
-    url_path = None  # mask inherited property
+    url_path = ""  # override inherited property
 
     def __init__(self, record, url_path):
         super().__init__(record)
@@ -424,5 +424,7 @@ def test_url_from_attachment_issues_warning(pad):
     record = pad.get("/extra/hello.txt")
     with BufferReporter() as reporter:
         assert record.url_to("a") == "a"
-    message = next(filter(None, (extra.get("message") for _, extra in reporter.buffer)))
+    message = next(
+        (extra.get("message", "") for _, extra in reporter.buffer if extra is not None)
+    )
     assert re.match(r"(?i)Suspicious use of relative URL", message)

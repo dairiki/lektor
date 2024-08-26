@@ -59,6 +59,7 @@ def project_path(data_path):
 @pytest.fixture(scope="session")
 def webadmin(tmp_path_factory, project_path):
     project = Project.from_path(project_path)
+    assert project is not None
     env = Environment(project, load_plugins=False)
     output_path = tmp_path_factory.mktemp("webadmin-output")
 

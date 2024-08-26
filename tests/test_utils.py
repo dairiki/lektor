@@ -348,7 +348,7 @@ def test_deprecated_classmethod():
 
 def test_deprecated_raises_type_error():
     with pytest.raises(TypeError):
-        deprecated(0)
+        deprecated(0)  # type: ignore[call-overload]
 
 
 def test_deprecated_stacklevel():
@@ -367,7 +367,7 @@ def test_deprecated_stacklevel():
 def _warning_line(warning: warnings.WarningMessage) -> str:
     """Get the text of the line for which warning was issued."""
     with open(warning.filename, encoding="utf-8") as fp:
-        return next(islice(fp, warning.lineno - 1, None), None)
+        return next(islice(fp, warning.lineno - 1, None))
 
 
 @pytest.mark.parametrize(

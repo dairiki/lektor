@@ -5,13 +5,13 @@ import re
 import warnings
 
 import pytest
+from jinja2 import Undefined
 from markupsafe import escape
 from markupsafe import Markup
 
 from lektor.context import Context
 from lektor.datamodel import Field
 from lektor.types.base import BadValue
-from lektor.types.base import Undefined
 from lektor.types.formats import MarkdownDescriptor
 
 
@@ -239,8 +239,12 @@ def test_datetime_no_timezone(env, pad, value, expected):
     assert rv.tzinfo is None
 
 
-def utc(*args):
-    return datetime.datetime(*args, tzinfo=datetime.timezone.utc)
+def utc(
+    year: int, month: int, day: int, hour: int, minute: int, second: int
+) -> datetime.datetime:
+    return datetime.datetime(
+        year, month, day, hour, minute, second, tzinfo=datetime.timezone.utc
+    )
 
 
 @pytest.mark.parametrize(
@@ -303,4 +307,5 @@ def test_datetime_missing(env, pad):
     with Context(pad=pad):
         rv = field.deserialize_value(None, pad=pad)
     assert isinstance(rv, Undefined)
+    assert rv._undefined_hint is not None
     assert "Missing value" in rv._undefined_hint

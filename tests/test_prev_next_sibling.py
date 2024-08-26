@@ -8,6 +8,7 @@ import pytest
 from lektor.builder import Builder
 from lektor.context import Context
 from lektor.db import Database
+from lektor.db import Record
 from lektor.db import Siblings
 from lektor.environment import Environment
 from lektor.project import Project
@@ -38,6 +39,8 @@ class DependencyReporter(Reporter):
         self.deps = {}
 
     def report_dependencies(self, dependencies):
+        assert self.current_artifact is not None
+        assert isinstance(self.current_artifact.source_obj, Record)
         source_id = self.current_artifact.source_obj["_id"]
         row = self.deps.setdefault(source_id, set())
         for (

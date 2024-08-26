@@ -24,7 +24,7 @@ def can_symlink(tmp_path_factory):
         except OSError as exc:
             # Error Code 1314 - A required privilege is not held by the client
             # pylint: disable=no-member
-            if exc.winerror != 1314:
+            if getattr(exc, "winerror", None) != 1314:
                 raise
             return False
     return True

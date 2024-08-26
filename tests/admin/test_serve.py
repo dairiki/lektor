@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
+from unittest import mock
 from urllib.parse import parse_qsl
 from urllib.parse import urljoin
 from urllib.parse import urlparse
@@ -13,11 +14,11 @@ import flask
 import pytest
 from werkzeug.exceptions import NotFound
 
+from lektor.admin.context import LektorApp
 from lektor.admin.context import LektorContext
+from lektor.admin.context import LektorInfo
 from lektor.admin.modules import livereload
 from lektor.admin.modules import serve
-from lektor.admin.webui import LektorApp
-from lektor.admin.webui import LektorInfo
 from lektor.assets import Asset
 from lektor.builder import Artifact
 from lektor.buildfailures import FailureController
@@ -65,6 +66,7 @@ def test_inject_tooldrawer(html_text, expect_at_tail):
     config = make_tooldrawer_config("http://example.com/EDIT_URL")
     rewritten = serve._inject_tooldrawer(f"{html_text}{eof_mark}".encode(), config)
     html, _, tail = rewritten.decode("utf-8").rpartition(eof_mark)
+    assert config.editUrl is not None
     if expect_at_tail:
         assert config.editUrl in tail
         assert config.editUrl not in html
@@ -103,7 +105,7 @@ def make_dummy_artifact(tmp_path):
         if content is not None:
             path.write_text(content)
         return Artifact(
-            build_state=None,  # bogus
+            build_state=mock.Mock(name="build_state"),
             artifact_id=artifact_id,
             dst_filename=str(path),
             sources=[],
@@ -160,7 +162,7 @@ def test_send_html_for_editing_etag_depends_on_artifact_id(
 def test_send_html_for_editing_raises_404(tmp_path, make_dummy_artifact):
     artifact = make_dummy_artifact(content=None)
     with pytest.raises(NotFound):
-        serve._send_html_for_editing(artifact, "EDIT_URL")
+        serve._send_html_for_editing(artifact, make_tooldrawer_config("EDIT_URL"))
 
 
 @pytest.mark.parametrize(
@@ -245,6 +247,7 @@ def flag(request):
 @pytest.fixture
 def app(output_path, project_path, flag):
     project = Project.from_path(project_path)
+    assert project is not None
     env = Environment(project, load_plugins=False)
     lektor_info = LektorInfo(env, output_path, extra_flags=flag)
     app = LektorApp(lektor_info)

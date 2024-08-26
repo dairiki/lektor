@@ -12,6 +12,7 @@ from lektor.db import Database
 from lektor.db import F
 from lektor.db import get_alts
 from lektor.db import Image
+from lektor.db import Page
 from lektor.db import Query
 from lektor.db import Video
 from lektor.filecontents import FileContents
@@ -356,6 +357,7 @@ def test_default_order_by(scratch_project, scratch_env):
 
     pad = Database(scratch_env).new_pad()
     myobj = pad.get("/myobj")
+    assert isinstance(myobj, Page)
     children = myobj.children
     assert list(children.get_order_by()) == ["title"]
     assert list(children.order_by("explicit").get_order_by()) == ["explicit"]

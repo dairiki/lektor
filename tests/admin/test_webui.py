@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import flask
 import pytest
 
@@ -14,7 +16,7 @@ def output_path(tmp_path):
 
 
 @pytest.fixture
-def static_folder(tmp_path) -> str:
+def static_folder(tmp_path: Path) -> Path:
     scratch_folder = tmp_path / "static"
     scratch_folder.mkdir()
     return scratch_folder

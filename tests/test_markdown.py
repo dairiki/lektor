@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import threading
+from typing import TYPE_CHECKING
 
 import pytest
 from markupsafe import Markup
@@ -15,11 +16,17 @@ from lektor.markdown import Markdown
 from lektor.markdown import markdown_to_html
 from lektor.markdown import MISTUNE_VERSION
 from lektor.markdown.controller import get_renderer_context
+from lektor.markdown.controller import Meta
 from lektor.markdown.controller import RendererContext
 from lektor.markdown.controller import RendererHelper
 from lektor.markdown.controller import require_ctx
 from lektor.markdown.controller import UnknownPluginError
 from lektor.pluginsystem import Plugin
+
+if TYPE_CHECKING:
+    from _typeshed import Incomplete
+
+    from lektor.sourceobj import SourceObject
 
 
 @pytest.fixture
@@ -181,9 +188,11 @@ def test_controller_cache(env):
 
 
 if MISTUNE_VERSION.startswith("0."):
-    plugin_url = ...
+    plugin_url: Incomplete = ...
 else:
-    from mistune.plugins import plugin_url
+    from mistune.plugins import plugin_url as _plugin_url  # type: ignore[import-untyped]
+
+    plugin_url = _plugin_url
 
 
 def plugin_null(md):
@@ -296,10 +305,13 @@ class LinkCounterPlugin(Plugin):
     name = "LinkCounter"
 
     class RendererMixin:
+        lektor: RendererHelper
+
         def link(self, *args, **kwargs):
-            multiplier = int(self.lektor.field_options.get("multiplier", 1))
-            self.lektor.meta["nlinks"] += multiplier
-            return super().link(*args, **kwargs)
+            multiplier = self.lektor.field_options.get("multiplier", 1)
+            assert multiplier is not None
+            self.lektor.meta["nlinks"] += int(multiplier)
+            return super().link(*args, **kwargs)  # type: ignore[misc]
 
     def on_markdown_config(self, config, **kwargs):
         config.renderer_mixins.append(self.RendererMixin)
@@ -394,7 +406,7 @@ class TestMarkdown:
         assert markdown.__html__().rstrip() == "<p>text</p>"
 
 
-def _normalize_html(output: str | Markup) -> str:
+def _normalize_html(output: str | Markup | Markdown) -> str:
     html = str(output).strip()
     html = html.replace("&copy;", "©")
     html = re.sub(r"(<img [^>]*?)\s*/>", r"\1>", html)
@@ -579,6 +591,9 @@ def test_legacy_plugin(env, record, field_options):
             from lektor.markdown import escape
 
             class LegacyRendererMixin:
+                meta: Meta
+                record: SourceObject | None
+
                 def link(self, link, title, text):
                     self.meta["links"].append(link)
                     self.meta["record"] = self.record

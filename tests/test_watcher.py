@@ -24,7 +24,7 @@ RunInThread = Callable[[Callable[[], None]], None]
 
 
 @pytest.fixture
-def run_in_thread() -> RunInThread:
+def run_in_thread() -> Generator[RunInThread, None, None]:
     threads = []
 
     def run_thread(target: Callable[[], None]) -> None:

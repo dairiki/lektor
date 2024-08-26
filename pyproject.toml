@@ -196,7 +196,6 @@ warn_return_any = false
 [[tool.mypy.overrides]]
 # These are not checked at all
 module = [
-    "tests.*",
 ]
 ignore_errors = true
 

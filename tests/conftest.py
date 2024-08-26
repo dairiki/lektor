@@ -272,6 +272,7 @@ def child_sources_test_project_builder(tmp_path, data_path, save_sys_path):
     output_path = tmp_path / "output"
     output_path.mkdir()
     project = Project.from_path(data_path / "child-sources-test-project")
+    assert project is not None
     pad = project.make_env().new_pad()
     return Builder(pad, str(output_path))
 

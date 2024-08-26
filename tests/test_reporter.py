@@ -40,4 +40,4 @@ def test_describe_build_func_BuildProgram(pad, build_state):
 
 def test_describe_build_func_deals_with_garbage():
     garbage = object()
-    assert isinstance(describe_build_func(garbage), str)
+    assert isinstance(describe_build_func(garbage), str)  # type: ignore[arg-type]

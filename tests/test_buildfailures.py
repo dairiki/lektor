@@ -3,9 +3,11 @@ from __future__ import annotations
 import os
 import re
 import sys
+from typing import Any
 
 import pytest
 
+from lektor.builder import ArtifactId
 from lektor.buildfailures import BuildFailure
 from lektor.buildfailures import FailureController
 
@@ -22,18 +24,20 @@ def failure_controller(pad, output_path):
 
 def test_BuildFailure_from_exc_info():
     def throw_exception():
-        x = {}
+        x: dict[str, Any] = {}
         try:
             x["somekey"]
         except KeyError:
             raise RuntimeError("test error")  # pylint: disable=raise-missing-from
 
-    artifact_id = "test_artifact"
+    artifact_id = ArtifactId("test_artifact")
     failure = None
     try:
         throw_exception()
     except Exception:
-        failure = BuildFailure.from_exc_info(artifact_id, sys.exc_info())
+        exc_info = sys.exc_info()
+        assert exc_info[1] is not None
+        failure = BuildFailure.from_exc_info(artifact_id, exc_info)
 
     assert failure
     assert failure.data["artifact"] == artifact_id

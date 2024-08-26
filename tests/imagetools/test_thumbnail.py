@@ -7,13 +7,17 @@ import os
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
+from unittest import mock
 
 import PIL
 import pytest
 from pytest import approx
 
+from lektor.builder import Artifact
+from lektor.builder import Builder
 from lektor.context import Context
 from lektor.db import Image
+from lektor.imagetools.image_info import get_image_info
 from lektor.imagetools.thumbnail import _compute_cropbox
 from lektor.imagetools.thumbnail import _convert_icc_profile_to_srgb
 from lektor.imagetools.thumbnail import _create_artifact
@@ -21,7 +25,6 @@ from lektor.imagetools.thumbnail import _create_thumbnail
 from lektor.imagetools.thumbnail import _get_thumbnail_url_path
 from lektor.imagetools.thumbnail import compute_dimensions
 from lektor.imagetools.thumbnail import CropBox
-from lektor.imagetools.thumbnail import get_image_info
 from lektor.imagetools.thumbnail import ImageSize
 from lektor.imagetools.thumbnail import make_image_thumbnail
 from lektor.imagetools.thumbnail import Thumbnail
@@ -229,9 +232,14 @@ class DummyArtifact:
 
 def test_create_artifact(dummy_jpg_path):
     thumbnail_params = ThumbnailParams(ImageSize(80, 60), "JPEG")
-    artifact = DummyArtifact()
-    _create_artifact(dummy_jpg_path, thumbnail_params, artifact)
-    thumb = artifact.image
+    dummy_artifact = DummyArtifact()
+    _create_artifact(
+        dummy_jpg_path,
+        thumbnail_params,
+        mock.Mock(spec=Artifact, wraps=dummy_artifact),
+    )
+    thumb = dummy_artifact.image
+    assert thumb is not None
     assert thumb.width == 80 and thumb.height == 60
     assert thumb.getpixel((40, 30)) == approx((153, 153, 153), abs=5)
 
@@ -241,9 +249,14 @@ def test_create_artifact_strips_metadata():
     source_image = ICC_PROFILE_TEST_JPG
     jfif_info_keys = {"jfif", "jfif_density", "jfif_unit", "jfif_version"}
     thumbnail_params = ThumbnailParams(ImageSize(80, 60), "JPEG")
-    artifact = DummyArtifact()
-    _create_artifact(source_image, thumbnail_params, artifact)
-    metadata_keys = set(artifact.image.info) - jfif_info_keys
+    dummy_artifact = DummyArtifact()
+    _create_artifact(
+        source_image,
+        thumbnail_params,
+        mock.Mock(spec=Artifact, wraps=dummy_artifact),
+    )
+    assert dummy_artifact.image is not None
+    metadata_keys = set(dummy_artifact.image.info) - jfif_info_keys
     assert not metadata_keys
 
 
@@ -409,7 +422,7 @@ class TestArtifactDependencyTracking:
         return scratch_project_data
 
     @staticmethod
-    def build_page(builder) -> list[str]:
+    def build_page(builder: Builder) -> list[str]:
         _, build_state = builder.build(builder.pad.root)
         assert len(build_state.failed_artifacts) == 0
         return [
@@ -462,10 +475,40 @@ class DemoThumbnail:
 
 @dataclasses.dataclass
 class ImgTag:
-    src: str
+    src: str | None
     width: int | None
     height: int | None
-    alt: str
+    alt: str | None
+
+
+def find_img_tags_in_html(html_text: str) -> list[ImgTag]:
+    def int_val(value):
+        if value is None:
+            return None
+        return int(value)
+
+    class HTMLImgFinder(html.parser.HTMLParser):
+        imgs: list[ImgTag] = []
+
+        def handle_starttag(
+            self, tag: str, attrs: list[tuple[str, str | None]]
+        ) -> None:
+            if tag != "img":
+                return
+            attr = dict(attrs)
+            self.imgs.append(
+                ImgTag(
+                    src=attr.get("src"),
+                    alt=attr.get("alt"),
+                    width=int_val(attr.get("width")),
+                    height=int_val(attr.get("height")),
+                )
+            )
+
+    parser = HTMLImgFinder()
+    parser.feed(html_text)
+    parser.close()
+    return parser.imgs
 
 
 class TestFunctional:
@@ -485,30 +528,7 @@ class TestFunctional:
 
     @pytest.fixture
     def built_demo_img_tags(self, built_demo):
-        def int_val(value):
-            if value is None:
-                return None
-            return int(value)
-
-        imgs = []
-
-        def handle_starttag(tag, attrs):
-            if tag == "img":
-                a = dict(attrs)
-                imgs.append(
-                    ImgTag(
-                        src=a.get("src"),
-                        alt=a.get("alt"),
-                        width=int_val(a.get("width")),
-                        height=int_val(a.get("height")),
-                    )
-                )
-
-        parser = html.parser.HTMLParser()
-        parser.handle_starttag = handle_starttag
-        parser.feed(Path(built_demo, "index.html").read_text("utf-8"))
-        parser.close()
-        return imgs
+        return find_img_tags_in_html(Path(built_demo, "index.html").read_text("utf-8"))
 
     def test_img_tag_dimensions(self, built_demo_img_tags, thumbnails):
         seen = set()

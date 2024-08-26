@@ -415,7 +415,9 @@ def test_BuildState_to_source_id(param, data_path, tmp_path):
             pytest.skip("symlinks unsupported?")
     else:
         tree = demo_project
-    env = Project.from_path(tree).make_env(load_plugins=False)
+    project = Project.from_path(tree)
+    assert project is not None
+    env = project.make_env(load_plugins=False)
     build_state = Builder(env.new_pad(), tmp_path / "output").new_build_state()
 
     assert build_state.to_source_id(str(demo_project / "filename")) == "filename"
