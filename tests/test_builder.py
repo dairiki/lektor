@@ -2,6 +2,9 @@ from pathlib import Path
 
 import pytest
 
+from lektor.builder import _is_packed_virtual_source_path
+from lektor.builder import _pack_virtual_source_path
+from lektor.builder import _unpack_virtual_source_path
 from lektor.builder import Builder
 from lektor.builder import FileInfo
 from lektor.project import Project
@@ -441,3 +444,28 @@ def test_FileInfo_unchanged(env, tmp_path):
     assert file_info2.size != 3
 
     assert not file_info.unchanged(file_info2)
+
+
+@pytest.mark.parametrize(
+    "path, alt",
+    [
+        ("/@vtag/foo", "de"),
+        ("/path@vtag", None),
+    ],
+)
+def test_pack_virtual_source_path(path, alt):
+    packed = _pack_virtual_source_path(path, alt)
+    assert _unpack_virtual_source_path(packed) == (path, alt)
+    assert _is_packed_virtual_source_path(packed)
+
+
+def test_unpack_virtual_source_path_returns_none_for_primary_alt() -> None:
+    path = "/path@virt"
+    assert _is_packed_virtual_source_path(path)
+    assert _unpack_virtual_source_path(path) == (path, None)
+
+
+def test_unpack_virtual_source_path_raises() -> None:
+    path = "/blog/post1/"
+    with pytest.raises(ValueError, match=r"must include at least one .@"):
+        assert _unpack_virtual_source_path(path)  # type: ignore[arg-type]
