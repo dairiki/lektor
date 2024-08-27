@@ -1,3 +1,46 @@
+## Ideas
+
+### Track Dirty Artifacts rather than Dirty Sources
+
+The point of `set/clear_dirty_flag()` and the `dirty_sources` table is
+to force artifacts to be rebuilt, even if their dependencies are
+up-to-date.
+
+Currently, they work by marking all of the source files for the artifact
+as "dirty".
+
+Why not just keep a table of "dirty" artifacts?
+
+### Normalize the `source_info` table
+
+The `source_info` table should be normalize from to split out (`lang`, `title`) from the rest of the data.
+(There can be multiple lang-title pairs for each source Record.)
+
+Also, we track _a_ source file per `source_info` record in order to be able to prune stale `source_info` records.
+It might work better to track the SourceObject (I think the SourceObject for `source_info`s is always a `Record`).
+Then prune `source_info`s for non-existent source objects.
+
+### Pruning
+
+Currently, Lektor prunes artifacts that do not have an extant primary source file.
+
+For artifacts from virtual sources, this can be problematic. Some virtual sources do
+not really depend on any source file. Currently, however they have to declare a bogus
+dependency on some source file or their artifact will be pruned immediately.
+
+The criteria could be changed:
+
+Track the SourceObject that generated each artifact.
+
+Every time a source object is build, we remember what artifacts and sub-artifacts it
+produces. (Even if those artifacts were not actually rebuilt due to unchanged dependencies.)
+
+After a build_all, we can delete any memory of artifacts associated with non-existing
+SourceObjects. (The `build_all` involves iterating over all SourceObjects, so this
+is cheap.)
+
+Now we can prune those artifacts that don't have a recorded source object.
+
 ## TODOs
 
 ### lektor.builder, multithreading
