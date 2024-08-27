@@ -33,7 +33,7 @@ from .image_info import UnknownImageInfo
 
 if TYPE_CHECKING:
     from _typeshed import SupportsRead
-    from lektor.builder import Artifact
+    from lektor.builder import ArtifactTransaction
     from lektor.context import Context
 
 
@@ -390,7 +390,7 @@ def _create_thumbnail(
 def _create_artifact(
     source_image: str | bytes | Path | SupportsRead[bytes],
     thumbnail_params: ThumbnailParams,
-    artifact: Artifact,
+    artifact: ArtifactTransaction,
 ) -> None:
     """Create artifact by computing thumbnail for source image."""
     with PIL.Image.open(source_image) as image:

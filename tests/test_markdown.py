@@ -8,7 +8,6 @@ import pytest
 from markupsafe import Markup
 
 import lektor.markdown
-from lektor.context import Context
 from lektor.markdown import controller_class
 from lektor.markdown import get_controller
 from lektor.markdown import make_markdown
@@ -65,12 +64,11 @@ def base_url(record):
 
 
 @pytest.fixture
-def context(pad, record, base_url):
+def context(dummy_ctx, record, base_url):
     if base_url is None:
         base_url = record.url_path
-    with Context(pad=pad) as ctx:
-        with ctx.changed_base_url(base_url):
-            yield ctx
+    with dummy_ctx.changed_base_url(base_url):
+        yield dummy_ctx
 
 
 @pytest.fixture

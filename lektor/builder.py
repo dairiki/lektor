@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import re
@@ -12,10 +13,8 @@ import threading
 import warnings
 import weakref
 from collections import deque
-from collections import namedtuple
 from collections.abc import Sized
-from contextlib import AbstractContextManager
-from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import dataclass
 from dataclasses import field
@@ -27,12 +26,16 @@ from typing import Any
 from typing import Callable
 from typing import cast
 from typing import Collection
+from typing import ContextManager
 from typing import Generic
 from typing import IO
 from typing import Iterable
 from typing import Iterator
+from typing import Literal
 from typing import Mapping
+from typing import NamedTuple
 from typing import NewType
+from typing import Protocol
 from typing import Sequence
 from typing import Tuple
 from typing import TYPE_CHECKING
@@ -69,14 +72,20 @@ else:
     import importlib_resources as resources
 
 if sys.version_info >= (3, 10):
+    from typing import ParamSpec
     from typing import TypeAlias
     from typing import TypeGuard
 else:
+    from typing_extensions import ParamSpec
     from typing_extensions import TypeAlias
     from typing_extensions import TypeGuard
 
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    from typing_extensions import Self
+
 if TYPE_CHECKING:
-    from _typeshed import StrOrBytesPath
     from _typeshed import StrPath
 
 # Key use for a source file in the SQL build database
@@ -97,8 +106,8 @@ ArtifactId = NewType("ArtifactId", str)
 # the `source` column of the `artifacts` table.
 PackedVirtualSourcePath = NewType("PackedVirtualSourcePath", str)
 
-
 _SourceObj = TypeVar("_SourceObj", bound=SourceObject)
+
 
 # Maximum number of place-holders allowed in an SQLite statement.
 # The default values is 999 for sqlite < 3.32 or 32766 for sqlite >= 3.32
@@ -116,6 +125,7 @@ _SqlParameters: TypeAlias = Union[Sequence[Any], Mapping[str, Any]]
 
 
 _T = TypeVar("_T")
+_P = ParamSpec("_P")
 
 
 class ThreadLocal(threading.local, Generic[_T]):
@@ -140,11 +150,11 @@ class ThreadLocal(threading.local, Generic[_T]):
 
 
 @dataclass(frozen=True)
-class SqliteConnectionPool(AbstractContextManager[sqlite3.Connection, None]):
+class SqliteConnectionPool(ContextManager[sqlite3.Connection]):
     """Maintain a pool of connections, one per thread, to a sqlite3 database.
 
     The pool can be used as a contextmanager to execute a complete transaction,
-    comitting on success, or rolling-back if the context body raises an exception.
+    committing on success, or rolling-back if the context body raises an exception.
     E.g.
 
         with pool as conn:
@@ -152,7 +162,7 @@ class SqliteConnectionPool(AbstractContextManager[sqlite3.Connection, None]):
 
     """
 
-    database: StrOrBytesPath
+    database: StrPath
     timeout: float = 10.0
 
     _con: ThreadLocal[sqlite3.Connection] = field(
@@ -181,7 +191,7 @@ class SqliteConnectionPool(AbstractContextManager[sqlite3.Connection, None]):
 
     @staticmethod
     def _connection_appears_usable(con: sqlite3.Connection | None) -> bool:
-        """Check that a connection appears usuable.
+        """Check that a connection appears usable.
 
         In particular, if the connection has been closed, it should test as being unusable.
         """
@@ -242,8 +252,8 @@ class BuildState:
     def __init__(self, builder: Builder, path_cache: PathCache):
         self.builder = builder
 
-        self.updated_artifacts = []
-        self.failed_artifacts = []
+        self.updated_artifacts: list[Artifact] = []
+        self.failed_artifacts: list[Artifact] = []
         self.path_cache = path_cache
 
     updated_artifacts: list[Artifact]
@@ -273,7 +283,7 @@ class BuildState:
         """Notify about a failure.  This marks a failed artifact and stores
         a failure.
         """
-        self.failed_artifacts.append(artifact)
+        self.failed_artifacts.append(artifact)  # XXX: remove?
         self.builder.failure_controller.store_failure(artifact.artifact_id, exc_info)
         reporter.report_failure(artifact, exc_info)
 
@@ -332,18 +342,21 @@ class BuildState:
         source_obj: SourceObject | None = None,
         extra: Any | None = None,  # XXX: appears unused?
         config_hash: str | None = None,
+        parent_artifact: Artifact | None = None,
     ) -> Artifact:
         """Creates a new artifact and returns it."""
         dst_filename = self.get_destination_filename(artifact_name)
         artifact_id = self.artifact_id_from_destination_filename(dst_filename)
+        if sources is None:
+            sources = ()
         return Artifact(
-            self,
-            artifact_id,
-            dst_filename,
-            sources or (),
+            artifact_id=artifact_id,
+            dst_filename=dst_filename,
+            sources=sources,
             source_obj=source_obj,
             extra=extra,
             config_hash=config_hash,
+            parent=parent_artifact,
         )
 
     @deprecated(version="3.4.0")
@@ -392,7 +405,7 @@ class BuildState:
     ) -> Iterator[_ArtifactSourceInfo]:
         """Get saved artifact source information."""
 
-        for path, mtime, size, checksum, is_dir in self.build_db.execute(
+        for source, mtime, size, checksum, is_dir in self.build_db.execute(
             """
             SELECT source, source_mtime, source_size, source_checksum, is_dir
             FROM artifacts
@@ -400,11 +413,11 @@ class BuildState:
             """,
             [artifact_id],
         ):
-            if _is_packed_virtual_source_path(path):
-                vpath, alt = _unpack_virtual_source_path(path)
+            if _is_packed_virtual_source_path(source):
+                vpath, alt = _unpack_virtual_source_path(source)
                 yield VirtualSourceInfo(vpath, alt, mtime, checksum)
             else:
-                yield FileInfo(self.env, path, mtime, size, checksum, bool(is_dir))
+                yield FileInfo(self.env, source, mtime, size, checksum, bool(is_dir))
 
     def write_source_info(self, info: SourceInfo) -> None:
         """Writes the source info into the database.  The source info is
@@ -429,13 +442,13 @@ class BuildState:
         """Remove all source infos of files that no longer exist."""
 
         root_path = Path(self.env.root_path)
-        to_clean = (
+        to_clean = [
             source
             for (source,) in self.build_db.execute(
                 "SELECT DISTINCT source FROM source_info"
             )
             if not root_path.joinpath(source).exists()
-        )
+        ]
         with self.build_db as con:
             for batch in batched(to_clean, SQLITE_MAX_VARIABLE_NUMBER):
                 con.execute(
@@ -478,13 +491,17 @@ class BuildState:
             return str(row[0])
         return None
 
-    # FIXME: rename parameter to artifact_id
-    def check_artifact_is_current(
-        self,
-        artifact_id: ArtifactId,
-        sources: Collection[str],
-        config_hash: str | None,
-    ) -> bool:
+    def check_artifact_is_current(self, artifact: Artifact) -> bool:
+        """Checks if the artifact is current."""
+        artifact_id = artifact.artifact_id
+        dst_filename = artifact.dst_filename
+        sources = artifact.sources
+        config_hash = artifact.config_hash
+
+        # If the artifact does not exist, we're not current.
+        if not os.path.isfile(dst_filename):
+            return False
+
         # The artifact config changed
         if config_hash != self._get_artifact_config_hash(artifact_id):
             return False
@@ -586,7 +603,7 @@ class BuildState:
 
     @deprecated(version="3.4.0")
     def iter_artifacts(self) -> Iterator[tuple[ArtifactId, FileInfo]]:
-        """Iterates over all artifact and their file infos.."""
+        """Iterates over all artifacts and their file infos."""
         for (artifact_id,) in self.build_db.execute(
             "SELECT DISTINCT artifact FROM artifacts ORDER BY artifact"
         ):
@@ -605,7 +622,7 @@ def _describe_fs_path_for_checksum(path: Path) -> bytes:
     this is.  This is used for checksum hashing on directories.
     """
     # This is not entirely correct as it does not detect changes for
-    # contents from alternatives.  However for the moment it's good
+    # contents from alternatives.  However, for the moment it's good
     # enough.
     if path.is_file():
         return b"\x01"
@@ -717,7 +734,7 @@ class FileInfo(_ArtifactSourceInfo):
         return f"{self.path}:{self.checksum}"
 
     def unchanged(self, other: FileInfo) -> bool:
-        """Given another file info checks if the are similar enough to
+        """Given another file info checks if they are similar enough to
         not consider it changed.
         """
         if not isinstance(other, FileInfo):
@@ -799,53 +816,195 @@ class VirtualSourceInfo(_ArtifactSourceInfo):
         return not self.unchanged(other)
 
 
-artifacts_row = namedtuple(
-    "artifacts_row",
-    [
-        "artifact",
-        "source",
-        "source_mtime",
-        "source_size",
-        "source_checksum",
-        "is_dir",
-        "is_primary_source",
-    ],
-)
+class ArtifactsRow(NamedTuple):
+    """A row for a non-virtual source in the artifacts table"""
+
+    artifact: ArtifactId
+    source: SourceId
+    source_mtime: int
+    source_size: int
+    source_checksum: str
+    is_dir: bool
+    is_primary_source: bool
 
 
-ArtifactBuildFunc = Callable[["Artifact"], None]
+class VsourceArtifactsRow(NamedTuple):
+    """A row for a VirtualSource in the artifacts table"""
 
-_DBUpdateOp = Callable[[sqlite3.Connection], None]
+    artifact: ArtifactId
+    source: PackedVirtualSourcePath
+    source_mtime: int | None
+    source_size: None = None
+    source_checksum: str | None = None
+    is_dir: Literal[False] = False
+    is_primary_source: Literal[False] = False
 
 
+ArtifactBuildFunc: TypeAlias = Callable[["ArtifactTransaction"], None]
+
+
+class SubArtifact(NamedTuple):
+    artifact: Artifact
+    build_func: ArtifactBuildFunc
+
+
+@dataclass
 class Artifact:
-    """This class represents a build artifact."""
+    """Various information about a build artifact."""
 
-    def __init__(
-        self,
-        build_state: BuildState,
-        artifact_id: ArtifactId,
-        dst_filename: StrPath,
-        sources: Collection[str],
-        source_obj: SourceObject | None = None,  # XXX: is this ever legitimately None?
-        extra: Any | None = None,  # XXX: appears unused?
-        config_hash: str | None = None,
-    ):
+    artifact_id: ArtifactId
+    dst_filename: StrPath
+    sources: Collection[str]
+    source_obj: SourceObject | None = None
+    extra: Any | None = None  # XXX: appears unused?
+    config_hash: str | None = None
+    parent: Artifact | None = None
+
+    @deprecated("renamed to artifact_id", version="3.4.0")
+    def artifact_name(self) -> ArtifactId:
+        return self.artifact_id
+
+
+@dataclass
+class BuildArtifactResult:
+    updated: bool
+    sub_artifacts: Collection[SubArtifact] = ()
+
+
+def build_artifact(
+    build_state: BuildState, artifact: Artifact, build_func: ArtifactBuildFunc
+) -> BuildArtifactResult:
+    failure_controller = build_state.builder.failure_controller
+
+    artifact_txn = ArtifactTransaction(build_state, artifact)
+    with Context(artifact_txn) as ctx:
+        # Upon building anything we record a dependency to the
+        # project file.  This is not ideal but for the moment
+        # it will ensure that if the file changes we will
+        # rebuild.
+        project_file = build_state.env.project.project_file
+        if project_file:
+            ctx.record_dependency(os.fspath(project_file))
+
+        try:
+            with artifact_txn:
+                build_func(artifact_txn)
+
+        except BaseException as exc:
+            exc_info = sys.exc_info()
+            assert exc_info[1] is not None
+
+            build_state.notify_failure(artifact, exc_info)
+
+            if not isinstance(exc, Exception):
+                raise
+            return BuildArtifactResult(updated=False)
+
+        build_state.updated_artifacts.append(artifact)
+        failure_controller.clear_failure(artifact.artifact_id)
+
+        return BuildArtifactResult(
+            updated=True,
+            sub_artifacts=ctx.sub_artifacts,
+        )
+
+
+class ArtifactTransaction:
+    """An artifact update transaction.
+
+    The transaction allows the artifact to be created and/or modified in an
+    atomic way.  The changes do not take effect until the transaction is committed,
+    and the changes may be discarded via a rollback.
+
+    Normally, the lifecycle or ArtifactTransaction instances is managed by the
+    ``build_artifact`` function.
+
+    """
+
+    def __init__(self, build_state: BuildState, artifact: Artifact):
         self.build_state = build_state
-        self.artifact_id = artifact_id
-        self.dst_filename = dst_filename
-        self.sources = sources
-        self.in_update_block = False
-        self.updated = False
-        self.source_obj = source_obj
-        self.extra = extra
-        self.config_hash = config_hash
-
+        self.artifact = artifact
         self._new_artifact_file: StrPath | None = None
-        self._pending_update_ops: list[_DBUpdateOp] = []
+        self._referenced_source_files: set[StrPath] = set()
+        self._referenced_virtual_sources: set[VirtualSourceObject] = set()
+        self._pending_dirty_flag = False
 
-    def __repr__(self) -> str:
-        return f"<{self.__class__.__name__} {self.dst_filename!r}>"
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self, exc_type: type[BaseException], exc: BaseException, tb: TracebackType
+    ) -> None:
+        if exc is None:
+            self._commit()
+        else:
+            self._rollback()
+
+    def _clear(self) -> None:
+        if self._new_artifact_file is not None:
+            with suppress(OSError):
+                os.remove(self._new_artifact_file)
+            self._new_artifact_file = None
+        self._referenced_source_files.clear()
+        self._referenced_virtual_sources.clear()
+        self._pending_dirty_flag = False
+
+    def _commit(self) -> None:
+        build_state = self.build_state
+        artifact = self.artifact
+        artifact_id = artifact.artifact_id
+
+        update_dirty_flag: DbUpdate
+        if self._pending_dirty_flag:
+            update_dirty_flag = SetDirtyFlag(build_state, artifact)
+        else:
+            update_dirty_flag = ClearDirtyFlag(build_state, artifact)
+
+        with build_state.build_db as con:
+            for op in [
+                update_dirty_flag,
+                DeleteDependencyInfo(artifact_id),
+                AppendDependencyInfo(
+                    build_state,
+                    artifact_id,
+                    artifact.sources,
+                    self._referenced_source_files,
+                    self._referenced_virtual_sources,
+                ),
+                UpdateConfigHash(artifact_id, artifact.config_hash),
+            ]:
+                op(con)
+
+            if self._new_artifact_file is not None:
+                os.replace(self._new_artifact_file, artifact.dst_filename)
+                self._new_artifact_file = None
+
+        self._clear()
+
+    def _rollback(self) -> None:
+        build_state = self.build_state
+        artifact = self.artifact
+        artifact_id = artifact.artifact_id
+
+        with build_state.build_db as con:
+            for op in [
+                SetDirtyFlag(build_state, artifact),
+                AppendDependencyInfo(
+                    build_state,
+                    artifact_id,
+                    artifact.sources,
+                    self._referenced_source_files,
+                    self._referenced_virtual_sources,
+                ),
+                UpdateConfigHash(artifact_id, artifact.config_hash),
+            ]:
+                op(con)
+
+        self._clear()
+
+    @property
+    def artifact_id(self) -> ArtifactId:
+        return self.artifact.artifact_id
 
     @property
     @deprecated("renamed to artifact_id", version="3.4.0")
@@ -853,44 +1012,57 @@ class Artifact:
         return self.artifact_id
 
     @property
-    def is_current(self) -> bool:
-        """Checks if the artifact is current."""
-        # If the artifact does not exist, we're not current.
-        if not os.path.isfile(self.dst_filename):
-            return False
+    def dst_filename(self) -> StrPath:
+        return self.artifact.dst_filename
 
-        return self.build_state.check_artifact_is_current(
-            self.artifact_id, self.sources, self.config_hash
-        )
+    @property
+    def sources(self) -> Collection[str]:
+        return self.artifact.sources
 
-    @deprecated(version="3.4.0")
-    def get_dependency_infos(self) -> list[BuildState._DependencyInfo]:
-        return self.build_state.get_artifact_dependency_infos(
-            self.artifact_id, self.sources
-        )
+    @property
+    def source_obj(self) -> SourceObject | None:
+        return self.artifact.source_obj
+
+    @property
+    def extra(self) -> Any:  # FIXME: unused?
+        return self.artifact.extra
+
+    def clear_dirty_flag(self) -> None:
+        """Clears the dirty flag for all sources."""
+        self._pending_dirty_flag = False
+
+    def set_dirty_flag(self) -> None:
+        """Set dirty flag for all sources.
+
+        This will force the artifact to be rebuilt next time.
+        """
+        self._pending_dirty_flag = True
 
     def ensure_dir(self) -> None:
         """Creates the directory if it does not exist yet."""
-        with suppress(OSError):
-            Path(self.dst_filename).parent.mkdir(parents=True, exist_ok=True)
+        Path(self.dst_filename).parent.mkdir(parents=True, exist_ok=True)
 
     def open(
         self, mode: str = "rb", encoding: str | None = None, ensure_dir: bool = True
     ) -> IO[Any]:
-        """Opens the artifact for reading or writing.  This is transaction
-        safe by writing into a temporary file and by moving it over the
-        actual source in commit.
+        """Opens the artifact for reading or writing.
+
+        This is transaction safe. It opens a temporary file. The temporary file
+        will be renamed to the destination upon commit.
         """
+        dst_filename = self.dst_filename
+
         if self._new_artifact_file is not None:
             return open(self._new_artifact_file, mode, encoding=encoding)
 
         if "r" in mode:
-            return open(self.dst_filename, mode, encoding=encoding)
+            return open(dst_filename, mode, encoding=encoding)
 
         if ensure_dir:
             self.ensure_dir()
+
         fd, self._new_artifact_file = tempfile.mkstemp(
-            dir=os.path.dirname(self.dst_filename),
+            dir=os.path.dirname(dst_filename),
             prefix=".__trans",
         )
         return open(fd, mode, encoding=encoding)
@@ -899,13 +1071,21 @@ class Artifact:
         self, filename: StrPath, ensure_dir: bool = True, copy: bool = False
     ) -> None:
         """This is similar to open but it will move over a given named
-        file.  The file will be deleted by a rollback or renamed by a
-        commit.
+        file.
+
+        If ``copy`` if false (the default) named file will be deleted upon rollback or
+        renamed upon commit.
+
+        If ``copy`` is true, the named file will be copied to a temporary file. That
+        temporary file will either be renamed on commit or deleted on rollback.  The
+        original file will be unmolested.
+
         """
         if copy:
-            with self.open("wb") as df:
-                with open(filename, "rb") as sf:
-                    shutil.copyfileobj(sf, df)
+            with self.open("wb", ensure_dir=ensure_dir) as df, open(
+                filename, "rb"
+            ) as sf:
+                shutil.copyfileobj(sf, df)
         else:
             if ensure_dir:
                 self.ensure_dir()
@@ -913,227 +1093,172 @@ class Artifact:
 
     def render_template_into(
         self,
-        template_name: str,
-        this: SourceObject,
-        *,
+        template_name: str | Iterable[str],
+        this: object | None,
         values: TemplateValuesType | None = None,
         alt: str | None = None,
     ) -> None:
         """Renders a template into the artifact."""
-        rv = self.build_state.env.render_template(
-            template_name, self.build_state.pad, this=this, values=values, alt=alt
+        build_state = self.build_state
+
+        # FIXME: use Template.generate() to avoid buffering entire output to memory?
+        buf = build_state.env.render_template(
+            template_name, build_state.pad, this=this, values=values, alt=alt
         )
         with self.open("wb") as f:
-            f.write(rv.encode("utf-8") + b"\n")
+            f.write(buf.encode("utf-8") + b"\n")
 
-    def _memorize_dependencies(
-        self,
-        dependencies: Collection[StrPath] | None = None,
-        virtual_dependencies: Collection[VirtualSourceObject] | None = None,
-        for_failure: bool = False,
-    ) -> None:
-        """This updates the dependencies recorded for the artifact based
-        on the direct sources plus the provided dependencies.  This also
-        stores the config hash.
 
-        This normally defers the operation until commit but the `for_failure`
-        more will immediately commit into a new connection.
-        """
+class DbUpdate(Protocol):
+    """A database update operation."""
 
-        def _iter_artifact_rows() -> Iterator[artifacts_row]:
-            to_source_id = self.build_state.to_source_id
-            primary_source_ids = set(map(to_source_id, self.sources))
-            source_ids = primary_source_ids.union(map(to_source_id, dependencies or ()))
-            for source_id in source_ids:
-                info = self.build_state.get_file_info(source_id)
-                yield artifacts_row(
-                    artifact=self.artifact_id,
-                    source=source_id,
-                    source_mtime=info.mtime,
-                    source_size=info.size,
-                    source_checksum=info.checksum,
-                    is_dir=info.is_dir,
-                    is_primary_source=source_id in primary_source_ids,
-                )
+    def __call__(self, con: sqlite3.Connection) -> None:
+        ...
 
-            for v_source in virtual_dependencies or ():
-                checksum = v_source.get_checksum(self.build_state.path_cache)
-                mtime = v_source.get_mtime(self.build_state.path_cache)
-                yield artifacts_row(
-                    artifact=self.artifact_id,
-                    source=_pack_virtual_source_path(v_source.path, v_source.alt),
-                    source_mtime=mtime,
-                    source_size=None,
-                    source_checksum=checksum,
-                    is_dir=False,
-                    is_primary_source=False,
-                )
 
-        def operation(con: sqlite3.Connection) -> None:
-            rows = list(_iter_artifact_rows())
-            reporter.report_dependencies(rows)
+@dataclass
+class DeleteDependencyInfo(DbUpdate):
+    """Delete existing dependency information from the database."""
 
-            if not for_failure:
-                con.execute(
-                    "DELETE FROM artifacts WHERE artifact = ?", [self.artifact_id]
-                )
-            if rows:
-                con.executemany(
-                    """
-                    INSERT OR REPLACE INTO artifacts (
-                        artifact, source, source_mtime, source_size,
-                        source_checksum, is_dir, is_primary_source)
-                    values (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    rows,
-                )
+    artifact_id: ArtifactId
 
-            if self.config_hash is None:
-                con.execute(
-                    "DELETE FROM artifact_config_hashes WHERE artifact = ?",
-                    [self.artifact_id],
-                )
-            else:
-                con.execute(
-                    """
-                    INSERT OR REPLACE INTO artifact_config_hashes
-                           (artifact, config_hash) VALUES (?, ?)
-                    """,
-                    [self.artifact_id, self.config_hash],
-                )
+    def __call__(self, con: sqlite3.Connection) -> None:
+        con.execute("DELETE FROM artifacts WHERE artifact = ?", [self.artifact_id])
 
-        if for_failure:
-            with self.build_state.build_db as con:
-                operation(con)
-        else:
-            self._auto_deferred_update_operation(operation)
 
-    def clear_dirty_flag(self) -> None:
-        """Clears the dirty flag for all sources."""
+@dataclass
+class AppendDependencyInfo(DbUpdate):
+    """This updates the dependencies recorded for the artifact based
+    on the direct sources plus the provided dependencies.
 
-        def operation(con: sqlite3.Connection) -> None:
-            source_ids = [self.build_state.to_source_id(x) for x in self.sources]
+    """
+
+    build_state: BuildState
+    artifact_id: ArtifactId
+    sources: Collection[str]
+    dependencies: Collection[StrPath]
+    virtual_dependencies: Collection[VirtualSourceObject]
+
+    def __call__(self, con: sqlite3.Connection) -> None:
+        artifact_rows: list[ArtifactsRow | VsourceArtifactsRow]
+        artifact_rows = [
+            *self._iter_artifact_rows_for_record(),
+            *self._iter_artifact_rows_for_virtual_sources(),
+        ]
+
+        reporter.report_dependencies(artifact_rows)
+
+        if artifact_rows:
+            con.executemany(
+                """
+                INSERT OR REPLACE INTO artifacts (
+                    artifact, source, source_mtime, source_size,
+                    source_checksum, is_dir, is_primary_source)
+                values (?, ?, ?, ?, ?, ?, ?)
+                """,
+                artifact_rows,
+            )
+
+    def _iter_artifact_rows_for_record(self) -> Iterator[ArtifactsRow]:
+        to_source_id = self.build_state.to_source_id
+        get_file_info = self.build_state.get_file_info
+
+        primary_sources = {to_source_id(src) for src in self.sources}
+        extra_sources = {to_source_id(dep) for dep in self.dependencies}
+
+        for source in primary_sources | extra_sources:
+            info = get_file_info(source)
+            yield ArtifactsRow(
+                artifact=self.artifact_id,
+                source=source,
+                source_mtime=info.mtime,
+                source_size=info.size,
+                source_checksum=info.checksum,
+                is_dir=info.is_dir,
+                is_primary_source=source in primary_sources,
+            )
+
+    def _iter_artifact_rows_for_virtual_sources(self) -> Iterator[VsourceArtifactsRow]:
+        path_cache = self.build_state.path_cache
+
+        for v_source in self.virtual_dependencies:
+            mtime = v_source.get_mtime(path_cache)
+            yield VsourceArtifactsRow(
+                artifact=self.artifact_id,
+                source=_pack_virtual_source_path(v_source.path, v_source.alt),
+                source_mtime=None if mtime is None else int(mtime),
+                source_checksum=v_source.get_checksum(path_cache),
+            )
+
+
+@dataclass
+class UpdateConfigHash(DbUpdate):
+    """This updates the confighash recorded for the artifact."""
+
+    artifact_id: ArtifactId
+    config_hash: str | None
+
+    def __call__(self, con: sqlite3.Connection) -> None:
+        if self.config_hash is None:
             con.execute(
-                f"DELETE FROM dirty_sources WHERE source in ({_placeholders(source_ids)})",
-                source_ids,
+                "DELETE FROM artifact_config_hashes WHERE artifact = ?",
+                [self.artifact_id],
             )
-            reporter.report_dirty_flag(False)
-
-        self._auto_deferred_update_operation(operation)
-
-    def set_dirty_flag(self) -> None:
-        """Set dirty flag for all sources.
-
-        This will force the artifact to be rebuilt next time.
-        """
-
-        def operation(con: sqlite3.Connection) -> None:
-            to_source_id = self.build_state.to_source_id
-            if self.sources:
-                con.executemany(
-                    "INSERT OR REPLACE INTO dirty_sources (source) VALUES (?)",
-                    ((to_source_id(source),) for source in self.sources),
-                )
-                reporter.report_dirty_flag(True)
-
-        self._auto_deferred_update_operation(operation)
-
-    def _auto_deferred_update_operation(self, operation: _DBUpdateOp) -> None:
-        """Helper that defers an update operation when inside an update
-        block to a later point.  Otherwise it's auto committed.
-        """
-        if self.in_update_block:
-            self._pending_update_ops.append(operation)
         else:
-            with self.build_state.build_db as con:
-                operation(con)
-
-    @contextmanager
-    def update(self) -> Iterator[Context]:
-        """Opens the artifact for modifications.  At the start the dirty
-        flag is cleared out and if the commit goes through without errors it
-        stays cleared.  The setting of the dirty flag has to be done by the
-        caller however based on the `exc_info` on the context.
-        """
-        ctx = self.begin_update()
-        try:
-            yield ctx
-        except BaseException as exc:
-            exc_info = sys.exc_info()
-            assert exc_info[1] is not None
-            self.finish_update(ctx, exc_info)
-            if not isinstance(exc, Exception):
-                raise
-        else:
-            self.finish_update(ctx)
-
-    def begin_update(self) -> Context:
-        """Begins an update block."""
-        if self.in_update_block:
-            raise RuntimeError("Artifact is already open for updates.")
-        self.updated = False
-        ctx = Context(self)
-        ctx.push()
-        self.in_update_block = True
-        self.clear_dirty_flag()
-        return ctx
-
-    def _commit(self) -> None:
-        with self.build_state.build_db as con:
-            for op in self._pending_update_ops:
-                op(con)
-
-            if self._new_artifact_file is not None:
-                os.replace(self._new_artifact_file, self.dst_filename)
-                self._new_artifact_file = None
-
-        self.build_state.updated_artifacts.append(self)
-        self.build_state.builder.failure_controller.clear_failure(self.artifact_id)
-
-    def _rollback(self) -> None:
-        if self._new_artifact_file is not None:
-            try:
-                os.remove(self._new_artifact_file)
-            except OSError:
-                pass
-            self._new_artifact_file = None
-        self._pending_update_ops = []
-
-    def finish_update(self, ctx: Context, exc_info: ExcInfo | None = None) -> None:
-        """Finalizes an update block."""
-        if not self.in_update_block:
-            raise RuntimeError("Artifact is not open for updates.")
-        ctx.pop()
-        self.in_update_block = False
-        self.updated = True
-
-        # If there was no error, we memoize the dependencies like normal
-        # and then commit our transaction.
-        if exc_info is None:
-            self._memorize_dependencies(
-                ctx.referenced_dependencies,
-                ctx.referenced_virtual_dependencies,
+            con.execute(
+                """
+                INSERT OR REPLACE INTO artifact_config_hashes
+                       (artifact, config_hash) VALUES (?, ?)
+                """,
+                [self.artifact_id, self.config_hash],
             )
-            self._commit()
-            return
 
-        # If an error happened we roll back all changes and record the
-        # stacktrace in two locations: we record it on the context so
-        # that a called can respond to our failure, and we also persist
-        # it so that the dev server can render it out later.
-        self._rollback()
 
-        # This is a special form of dependency memorization where we do
-        # not prune old dependencies and we just append new ones and we
-        # use a new database connection that immediately commits.
-        self._memorize_dependencies(
-            ctx.referenced_dependencies,
-            ctx.referenced_virtual_dependencies,
-            for_failure=True,
+@dataclass
+class ClearDirtyFlag(DbUpdate):
+    """Clears the dirty flag for all sources."""
+
+    build_state: BuildState
+    artifact: Artifact
+
+    def __call__(self, con: sqlite3.Connection) -> None:
+        to_source_id = self.build_state.to_source_id
+
+        sources = [to_source_id(src) for src in self.artifact.sources]
+        con.execute(
+            f"DELETE FROM dirty_sources WHERE source in ({_placeholders(sources)})",
+            sources,
         )
+        reporter.report_dirty_flag(False)
 
-        ctx.exc_info = exc_info
-        self.build_state.notify_failure(self, exc_info)
+
+@dataclass
+class SetDirtyFlag(DbUpdate):
+    """Set dirty flag for all sources.
+
+    This will force the artifact to be rebuilt next time.
+    """
+
+    build_state: BuildState
+    artifact: Artifact
+
+    def __call__(self, con: sqlite3.Connection) -> None:
+        to_source_id = self.build_state.to_source_id
+        source_ids = set(map(to_source_id, self._iter_all_sources()))
+        if source_ids:
+            con.executemany(
+                "INSERT OR REPLACE INTO dirty_sources (source) VALUES (?)",
+                ((src,) for src in source_ids),
+            )
+        reporter.report_dirty_flag(True)
+
+    def _iter_all_sources(self) -> Iterator[str]:
+        """Iterate over all sources of this artifact as well as all of its ancestors."""
+        # (Sub-artifacts will not get rebuilt unless their parent is built.)
+        ancestor: Artifact | None = self.artifact
+        while ancestor is not None:
+            yield from ancestor.sources
+            ancestor = ancestor.parent
 
 
 class PathCache:
@@ -1192,6 +1317,270 @@ class PathCache:
         if file_info is None:
             self.file_info_cache[path] = file_info = FileInfo(self.env, path)
         return file_info
+
+
+class BuildResult(NamedTuple):
+    """Return type of Builder.build()"""
+
+    prog: BuildProgram[SourceObject]
+    build_state: BuildState
+
+    @property
+    def failures(self) -> int:
+        """Number of artifacts that failed to build."""
+        return len(self.build_state.failed_artifacts)
+
+    @property
+    def primary_artifact(self) -> Artifact | None:
+        """The primary artifact for the build program."""
+        return self.prog.primary_artifact
+
+
+@dataclass
+class BuildProgramBuildStrategy:
+    """How to run a BuildProgram to generate its artifacts and sub-artifacts."""
+
+    builder: Builder
+    build_state: BuildState
+    build_program: BuildProgram[SourceObject]
+
+    executor: ThreadPoolExecutor | None = None
+
+    _updated: bool = field(default=False, init=False)
+
+    @property
+    def env(self) -> Environment:
+        return self.builder.env
+
+    def __enter__(self) -> Self:
+        self._before_build()
+        self._updated = False
+        return self
+
+    def __exit__(self, _tp: Any, _ex: Any, _tb: Any) -> None:
+        self._after_build(updated=self._updated)
+
+    def run(self) -> BuildResult:
+        build_program = self.build_program
+
+        # Build the top-level artifacts (usually there is at most one of those)
+        build_func = build_program.build_artifact
+        build_queue = [
+            (artifact, build_func) for artifact in build_program.get_artifacts()
+        ]
+
+        while build_queue:
+            artifact, build_func = build_queue.pop()
+            sub_artifacts = self.build_artifact(artifact, build_func)
+            build_queue.extend(
+                (artifact, build_func) for artifact, build_func in sub_artifacts
+            )
+
+        return BuildResult(build_program, self.build_state)
+
+    async def arun(self) -> BuildResult:
+        build_program = self.build_program
+        build_artifact_in_thread = self.build_artifact_in_thread
+
+        # Build the top-level artifacts (usually there is at most one of those)
+        build_func = build_program.build_artifact
+        tasks = {
+            build_artifact_in_thread(artifact, build_func)
+            for artifact in build_program.get_artifacts()
+        }
+
+        while tasks:
+            done, tasks = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                sub_artifacts = task.result()
+                tasks.update(
+                    build_artifact_in_thread(artifact, build_func)
+                    for artifact, build_func in sub_artifacts
+                )
+
+        return BuildResult(build_program, self.build_state)
+
+    def _before_build(self) -> None:
+        build_program = self.build_program
+
+        self.env.plugin_controller.emit(
+            "before-build",
+            builder=self.builder,
+            build_state=self.build_state,
+            source=build_program.source,
+            prog=build_program,
+        )
+
+    def _after_build(self, *, updated: bool) -> None:
+        build_program = self.build_program
+
+        if updated:
+            if (source_info := build_program.describe_source_record()) is not None:
+                self.build_state.write_source_info(source_info)
+
+        self.env.plugin_controller.emit(
+            "after-build",
+            builder=self.builder,
+            build_state=self.build_state,
+            source=build_program.source,
+            prog=build_program,
+        )
+
+    def build_artifact(
+        self, artifact: Artifact, build_func: ArtifactBuildFunc
+    ) -> Collection[SubArtifact]:
+        """Build an artifact, if necessary.
+
+        If the artifact does not exist, or is out-of-date with respect to its sources,
+        call ``build_func`` to actually build it.
+
+        Returns any sub-artifacts generated during the build.
+
+        """
+        build_state = self.build_state
+
+        is_current = build_state.check_artifact_is_current(artifact)
+        with reporter.build_artifact(artifact, build_func, is_current=is_current):
+            if is_current:
+                return ()
+
+            result = build_artifact(build_state, artifact, build_func)
+
+            if result.updated:
+                self._updated = True
+            return result.sub_artifacts
+
+    async def _async_build_artifact(
+        self, artifact: Artifact, build_func: ArtifactBuildFunc
+    ) -> Collection[SubArtifact]:
+        return self.build_artifact(artifact, build_func)
+
+    def build_artifact_in_thread(
+        self, artifact: Artifact, build_func: ArtifactBuildFunc
+    ) -> asyncio.Future[Collection[SubArtifact]]:
+        """Schedule build_artifact to be executed in our ThreadPoolExecutor.
+
+        Returns an asyncio.Future object.
+
+        If no executor is configured, fallback to calling in main thread.
+        return self._run_in_executor(self.build_artifact, artifact, build_func)
+        """
+        if self.executor is None:
+            return asyncio.create_task(self._async_build_artifact(artifact, build_func))
+
+        loop = asyncio.get_running_loop()
+
+        # Set up a copy of our current reporter in the thread.
+        # (The reporter stack is thread-local.)
+        reporter_copy = reporter.copy()
+
+        def target() -> Collection[SubArtifact]:
+            with reporter_copy:
+                return self.build_artifact(artifact, build_func)
+
+        return loop.run_in_executor(self.executor, target)
+
+
+class BuildStrategy(ContextManager["BuildStrategy"]):
+    def __init__(
+        self,
+        builder: Builder,
+        *,
+        max_workers: int | None = None,
+        max_simultaneous_builds: int | None = None,
+    ):
+        self.builder = builder
+
+        if max_workers is None:
+            cpu_count = os.cpu_count()
+            if cpu_count is not None:
+                max_workers = min(32, cpu_count + 4)
+            else:
+                max_workers = 0
+
+        max_workers = 0
+
+        if max_workers < 2:
+            self._event_loop = None
+        else:
+            self._event_loop = asyncio.new_event_loop()
+            self._executor = ThreadPoolExecutor(max_workers=max_workers)
+            if max_simultaneous_builds is None:
+                max_simultaneous_builds = max_workers
+            else:
+                max_simultaneous_builds = max(1, max_simultaneous_builds)
+            self._semaphore = asyncio.Semaphore(max_simultaneous_builds)
+
+    def close(self) -> None:
+        loop = self._event_loop
+        if loop is not None:
+            self._event_loop = None
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.close()
+
+    def __exit__(self, _typ: Any, _ex: Any, _tb: Any) -> None:
+        self.close()
+
+    def build(
+        self,
+        build_program: BuildProgram[SourceObject],
+    ) -> BuildResult:
+        """Build a single BuildProgram."""
+        if self._event_loop is None:
+            return self._build(build_program)
+        return self._event_loop.run_until_complete(self._abuild(build_program))
+
+    def build_all(self, build_programs: Iterable[BuildProgram[SourceObject]]) -> int:
+        builder = self.builder
+        plugin_controller = builder.env.plugin_controller
+
+        with reporter.build("build", builder):
+            plugin_controller.emit("before-build-all", builder=builder)
+            if self._event_loop is None:
+                failures = self._build_all(build_programs)
+            else:
+                failures = self._event_loop.run_until_complete(
+                    self._abuild_all(build_programs)
+                )
+            plugin_controller.emit("after-build-all", builder=builder)
+            if failures:
+                reporter.report_build_all_failure(failures)
+        return failures
+
+    def _build(self, build_program: BuildProgram[SourceObject]) -> BuildResult:
+        with reporter.process_source(build_program.source):
+            with BuildProgramBuildStrategy(
+                builder=self.builder,
+                build_state=build_program.build_state,
+                build_program=build_program,
+            ) as strategy:
+                return strategy.run()
+
+    async def _abuild(self, build_program: BuildProgram[SourceObject]) -> BuildResult:
+        async with self._semaphore:
+            # Since we're async, each build gets its own copy of the reporter
+            # (to prevent indentation staircase)
+            with reporter.copy():
+                with reporter.process_source(build_program.source):
+                    with BuildProgramBuildStrategy(
+                        builder=self.builder,
+                        build_state=build_program.build_state,
+                        build_program=build_program,
+                        executor=self._executor,
+                    ) as strategy:
+                        return await strategy.arun()
+
+    def _build_all(self, build_programs: Iterable[BuildProgram[SourceObject]]) -> int:
+        results = [self._build(build_prog) for build_prog in build_programs]
+        failures = sum(result.failures for result in results)
+        return failures
+
+    async def _abuild_all(
+        self, build_programs: Iterable[BuildProgram[SourceObject]]
+    ) -> int:
+        results = await asyncio.gather(*map(self._abuild, build_programs))
+        failures = sum(result.failures for result in results)
+        return failures
 
 
 class Builder:
@@ -1271,54 +1660,6 @@ class Builder:
             path_cache = PathCache(self.env)
         return BuildState(self, path_cache)
 
-    def get_build_program(
-        self, source: _SourceObj, build_state: BuildState
-    ) -> BuildProgram[_SourceObj]:
-        """Finds the right build function for the given source file."""
-        for cls, builder in chain(
-            reversed(self.env.build_programs), reversed(builtin_build_programs)
-        ):
-            if isinstance(source, cls):
-                return cast(BuildProgram[_SourceObj], builder(source, build_state))
-
-        raise RuntimeError("I do not know how to build %r" % source)
-
-    def build_artifact(
-        self, artifact: Artifact, build_func: ArtifactBuildFunc
-    ) -> Context | None:
-        """Various parts of the system once they have an artifact and a
-        function to build it, will invoke this function.  This ultimately
-        is what builds.
-
-        The return value is the ctx that was used to build this thing
-        if it was built, or `None` otherwise.
-        """
-        is_current = artifact.is_current
-        with reporter.build_artifact(artifact, build_func, is_current):
-            if not is_current:
-                with artifact.update() as ctx:
-                    # Upon builing anything we record a dependency to the
-                    # project file.  This is not ideal but for the moment
-                    # it will ensure that if the file changes we will
-                    # rebuild.
-                    project_file = self.env.project.project_file
-                    if project_file:
-                        ctx.record_dependency(os.fspath(project_file))
-                    build_func(artifact)
-                return ctx
-        return None
-
-    @staticmethod
-    def update_source_info(
-        prog: BuildProgram[SourceObject], build_state: BuildState
-    ) -> None:
-        """Updates a single source info based on a program.  This is done
-        automatically as part of a build.
-        """
-        info = prog.describe_source_record()
-        if info is not None:
-            build_state.write_source_info(info)
-
     def prune(self, all: bool = False) -> None:
         """This cleans up data left in the build folder that does not
         correspond to known artifacts.
@@ -1345,59 +1686,52 @@ class Builder:
                 build_state.vacuum()
             self.env.plugin_controller.emit("after-prune", builder=self, all=all)
 
+    def _get_build_program(
+        self, source: _SourceObj, path_cache: PathCache | None = None
+    ) -> BuildProgram[_SourceObj]:
+        """Finds the right build function for the given source object."""
+        for cls, builder in chain(
+            reversed(self.env.build_programs), reversed(builtin_build_programs)
+        ):
+            if isinstance(source, cls):
+                return cast(
+                    BuildProgram[_SourceObj],
+                    builder(source, self.new_build_state(path_cache)),
+                )
+
+        raise RuntimeError("I do not know how to build %r" % source)
+
+    def _iter_all_build_programs(self) -> Iterable[BuildProgram[SourceObject]]:
+        """Iterate over all buildable sources.
+
+        Returns an iterable of BuildProgram instances, one for each buildable record in
+        the project.
+
+        """
+        path_cache = PathCache(self.env)
+        to_build: deque[SourceObject] = deque(self.pad.get_all_roots())
+        while to_build:
+            source = to_build.popleft()
+            prog = self._get_build_program(source, path_cache)
+            yield prog
+            to_build.extend(prog.iter_child_sources())
+            for custom_generator in self.env.custom_generators:
+                to_build.extend(custom_generator(source) or ())
+
     def build(
         self, source: SourceObject, path_cache: PathCache | None = None
-    ) -> tuple[BuildProgram[SourceObject], BuildState]:
+    ) -> BuildResult:  # FIXME: change return type to None?
         """Given a source object, builds it."""
-        build_state = self.new_build_state(path_cache=path_cache)
-        with reporter.process_source(source):
-            prog = self.get_build_program(source, build_state)
-            self.env.plugin_controller.emit(
-                "before-build",
-                builder=self,
-                build_state=build_state,
-                source=source,
-                prog=prog,
-            )
-            prog.build()
-            if build_state.updated_artifacts:
-                self.update_source_info(prog, build_state)
-            self.env.plugin_controller.emit(
-                "after-build",
-                builder=self,
-                build_state=build_state,
-                source=source,
-                prog=prog,
-            )
-            return prog, build_state
-
-    def get_initial_build_queue(self) -> deque[SourceObject]:
-        """Returns the initial build queue as deque."""
-        return deque(self.pad.get_all_roots())
-
-    def extend_build_queue(
-        self, queue: deque[SourceObject], prog: BuildProgram[SourceObject]
-    ) -> None:
-        queue.extend(prog.iter_child_sources())
-        for func in self.env.custom_generators:
-            queue.extend(func(prog.source) or ())
+        build_prog = self._get_build_program(source, path_cache)
+        with BuildStrategy(builder=self) as strat:
+            return strat.build(build_prog)
 
     def build_all(self) -> int:
         """Builds the entire tree.  Returns the number of failures."""
-        failures = 0
-        path_cache = PathCache(self.env)
-        with reporter.build("build", self):
-            self.env.plugin_controller.emit("before-build-all", builder=self)
-            to_build = self.get_initial_build_queue()
-            while to_build:
-                source = to_build.popleft()
-                prog, build_state = self.build(source, path_cache=path_cache)
-                self.extend_build_queue(to_build, prog)
-                failures += len(build_state.failed_artifacts)
-            self.env.plugin_controller.emit("after-build-all", builder=self)
-            if failures:
-                reporter.report_build_all_failure(failures)
-        return failures
+        # return asyncio.run(self._async_build_all())
+        iter_build_progs = self._iter_all_build_programs()
+        with BuildStrategy(builder=self) as strat:
+            return strat.build_all(iter_build_progs)
 
     def update_all_source_infos(self) -> None:
         """Fast way to update all source infos without having to build
@@ -1405,11 +1739,7 @@ class Builder:
         """
         build_state = self.new_build_state()
         with reporter.build("source info update", self):
-            to_build = self.get_initial_build_queue()
-            while to_build:
-                source = to_build.popleft()
-                with reporter.process_source(source):
-                    prog = self.get_build_program(source, build_state)
-                    self.update_source_info(prog, build_state)
-                self.extend_build_queue(to_build, prog)
+            for prog in self._iter_all_build_programs():
+                if (source_info := prog.describe_source_record()) is not None:
+                    build_state.write_source_info(source_info)
             build_state.prune_source_infos()

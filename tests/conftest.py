@@ -8,12 +8,15 @@ import textwrap
 from contextlib import contextmanager
 from contextlib import suppress
 from pathlib import Path
+from typing import Iterator
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
 
 import lektor.project
+from lektor.builder import ArtifactTransaction
 from lektor.builder import Builder
+from lektor.context import Context
 from lektor.db import Database
 from lektor.db import Tree
 from lektor.environment import Environment
@@ -337,3 +340,23 @@ def no_utils(monkeypatch):
         yield
     finally:
         locate_executable.cache_clear()
+
+
+@pytest.fixture
+def dummy_artifact_txn(request: pytest.FixtureRequest) -> ArtifactTransaction:
+    builder_fixture = "builder"
+    if "scratch_project_data" in request.fixturenames:
+        builder_fixture = "scratch_builder"
+    builder_ = request.getfixturevalue(builder_fixture)
+
+    source_obj = builder_.pad.root
+    build_state = builder_.new_build_state()
+    sources = tuple(source_obj.iter_source_filenames())
+    artifact = build_state.new_artifact("dummy-artifact", sources, source_obj)
+    return ArtifactTransaction(build_state, artifact)
+
+
+@pytest.fixture
+def dummy_ctx(dummy_artifact_txn: ArtifactTransaction) -> Iterator[Context]:
+    with Context(dummy_artifact_txn) as ctx:
+        yield ctx

@@ -7,7 +7,6 @@ from datetime import date
 
 import pytest
 
-from lektor.context import Context
 from lektor.db import Database
 from lektor.db import F
 from lektor.db import get_alts
@@ -119,9 +118,9 @@ def test_resolve_url_invalid_path(pad, path):
     assert pad.resolve_url_path(path) is None
 
 
-def test_basic_alts(pad):
-    with Context(pad=pad):
-        assert get_alts() == ["en", "de"]
+@pytest.mark.usefixtures("dummy_ctx")
+def test_basic_alts():
+    assert get_alts() == ["en", "de"]
 
 
 def test_basic_query_syntax(pad):

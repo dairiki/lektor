@@ -7,7 +7,6 @@ if TYPE_CHECKING:
     from lektor.db import Pad
     from lektor.environment import Environment
     from lektor.environment import TemplateValuesType
-    from lektor.sourceobj import SourceObject
 
 
 class Expression:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Hashable
 from contextlib import contextmanager
+from functools import cached_property
 from typing import Any
 from typing import Callable
 from typing import Collection
@@ -14,29 +15,29 @@ from werkzeug.local import LocalProxy
 from werkzeug.local import LocalStack
 
 from lektor.reporter import reporter
+from lektor.utils import deprecated
 
 if sys.version_info >= (3, 11):
     from typing import Self
 else:
     from typing_extensions import Self
 
-
 if TYPE_CHECKING:
     from _typeshed import StrPath
     from _typeshed import Unused
 
     from lektor.assets import Asset
-    from lektor.builder import Artifact
+    from lektor.builder import ArtifactTransaction
     from lektor.builder import ArtifactBuildFunc
+    from lektor.builder import SubArtifact
     from lektor.builder import BuildState
     from lektor.db import Pad
     from lektor.db import Record
-    from lektor.environment import Environment
     from lektor.environment.config import Config
+    from lektor.environment import Environment
     from lektor.sourceobj import SourceObject
     from lektor.sourceobj import VirtualSourceObject
     from lektor.types.flow import FlowBlock
-    from lektor.typing import ExcInfo
     from lektor.typing import SupportsUrlPath
 
 
@@ -116,31 +117,12 @@ class Context:
     during processing of the object.
     """
 
-    def __init__(self, artifact: Artifact | None = None, pad: Pad | None = None):
-        if pad is None:
-            if artifact is None:
-                raise TypeError(
-                    "Either artifact or pad is needed to construct a context."
-                )
-            pad = artifact.build_state.pad
-
-        if artifact is not None:
-            self.artifact = artifact
-            self.source = artifact.source_obj
-            self.build_state = self.artifact.build_state
-        else:
-            self.artifact = None
-            self.source = None
-            self.build_state = None
-
-        self.exc_info = None
-
-        self.pad = pad
+    def __init__(self, artifact_txn: ArtifactTransaction):
+        self.artifact_txn = artifact_txn
 
         # Processing information
-        self.referenced_dependencies: set[StrPath] = set()
-        self.referenced_virtual_dependencies: set[VirtualSourceObject] = set()
-        self.sub_artifacts: list[tuple[Artifact, ArtifactBuildFunc]] = []
+
+        self.sub_artifacts: list[SubArtifact] = []
 
         self.flow_block_render_stack: list[FlowBlock] = []
 
@@ -153,13 +135,35 @@ class Context:
 
         self._dependency_collectors: list[DependencyCollector] = []
 
-    artifact: Artifact | None
-    source: SourceObject | None
-    build_state: BuildState | None
-    exc_info: ExcInfo | None
-    pad: Pad
+    @property
+    @deprecated(
+        "Context.artifact has been renamed to Context.artifact_txn.",
+        version="3.4.0",
+    )
+    def artifact(self) -> ArtifactTransaction:
+        return self.artifact_txn
 
     @property
+    def referenced_dependencies(self) -> set[StrPath]:
+        return self.artifact_txn._referenced_source_files
+
+    @property
+    def referenced_virtual_dependencies(self) -> set[VirtualSourceObject]:
+        return self.artifact_txn._referenced_virtual_sources
+
+    @property
+    def source(self) -> SourceObject | None:  # XXX: can this really be None?
+        return self.artifact_txn.source_obj
+
+    @cached_property
+    def build_state(self) -> BuildState:
+        return self.artifact_txn.build_state
+
+    @cached_property
+    def pad(self) -> Pad:
+        return self.build_state.builder.pad
+
+    @cached_property
     def env(self) -> Environment:
         """The environment of the context."""
         return self.pad.db.env
@@ -279,19 +283,24 @@ class Context:
         artifact needs building.  This function is generally used to record
         this request.
         """
-        if self.build_state is None:
+        # pylint: disable=import-outside-toplevel
+        from lektor.builder import SubArtifact  # FIXME: circdep
+
+        artifact_txn = self.artifact_txn
+        if artifact_txn is None:
             raise TypeError(
                 "The context does not have a build state which "
                 "means that artifact declaration is not possible."
             )
-        aft = self.build_state.new_artifact(
+        artifact = artifact_txn.build_state.new_artifact(
             artifact_name=artifact_name,
             sources=sources,
             source_obj=source_obj,
             config_hash=config_hash,
+            parent_artifact=artifact_txn.artifact,
         )
-        self.sub_artifacts.append((aft, build_func))
-        reporter.report_sub_artifact(aft)
+        self.sub_artifacts.append(SubArtifact(artifact, build_func))
+        reporter.report_sub_artifact(artifact)
 
     def record_dependency(self, filename: str, affects_url: bool | None = None) -> None:
         """Records a dependency from processing.
@@ -301,13 +310,13 @@ class Context:
         """
         if self._resolving_url and affects_url is False:
             return
-        self.referenced_dependencies.add(filename)
+        self.artifact_txn._referenced_source_files.add(filename)
         for coll in self._dependency_collectors:
             coll(filename)
 
     def record_virtual_dependency(self, virtual_source: VirtualSourceObject) -> None:
         """Records a dependency from processing."""
-        self.referenced_virtual_dependencies.add(virtual_source)
+        self.artifact_txn._referenced_virtual_sources.add(virtual_source)
         for coll in self._dependency_collectors:
             coll(virtual_source)
 

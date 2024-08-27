@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import re
 import warnings
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -10,7 +11,6 @@ from jinja2 import Undefined
 from markupsafe import escape
 from markupsafe import Markup
 
-from lektor.context import Context
 from lektor.datamodel import Field
 from lektor.sourceobj import SourceObject
 from lektor.types.base import BadValue
@@ -29,28 +29,29 @@ def make_field(env, type, **options):
     return Field(env, "demo", type=env.types[type], options=options)
 
 
+@pytest.mark.usefixtures("dummy_ctx")
 def test_markdown(env, pad, dummy_source):
     field = make_field(env, "markdown")
 
-    with Context(pad=pad):
-        rv = field.deserialize_value("Hello **World**!", pad=pad)
+    rv = field.deserialize_value("Hello **World**!", pad=pad)
+    assert isinstance(rv, MarkdownDescriptor)
+    rv = rv.__get__(dummy_source)
+    assert rv
+    assert rv.source == "Hello **World**!"
+    assert escape(rv) == Markup("<p>Hello <strong>World</strong>!</p>\n")
+    assert rv.meta == {}
+
+    for val in "", None:
+        rv = field.deserialize_value(val, pad=pad)
         assert isinstance(rv, MarkdownDescriptor)
         rv = rv.__get__(dummy_source)
-        assert rv
-        assert rv.source == "Hello **World**!"
-        assert escape(rv) == Markup("<p>Hello <strong>World</strong>!</p>\n")
+        assert not rv
+        assert rv.source == ""
+        assert escape(rv) == Markup("")
         assert rv.meta == {}
 
-        for val in "", None:
-            rv = field.deserialize_value(val, pad=pad)
-            assert isinstance(rv, MarkdownDescriptor)
-            rv = rv.__get__(dummy_source)
-            assert not rv
-            assert rv.source == ""
-            assert escape(rv) == Markup("")
-            assert rv.meta == {}
 
-
+@pytest.mark.usefixtures("dummy_ctx")
 def test_markdown_links(env, pad, dummy_source):
     field = make_field(env, "markdown")
 
@@ -59,58 +60,53 @@ def test_markdown_links(env, pad, dummy_source):
         assert isinstance(rv, MarkdownDescriptor)
         return str(rv.__get__(dummy_source)).strip()
 
-    with Context(pad=pad):
-        assert md("[foo](http://example.com/)") == (
-            '<p><a href="http://example.com/">foo</a></p>'
-        )
-        assert md("[foo](javascript:foo)") == (
-            '<p><a href="javascript:foo">foo</a></p>'
-        )
+    assert md("[foo](http://example.com/)") == (
+        '<p><a href="http://example.com/">foo</a></p>'
+    )
+    assert md("[foo](javascript:foo)") == ('<p><a href="javascript:foo">foo</a></p>')
 
-        img = (
-            "iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4"
-            "//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg=="
-        )
-        assert re.match(
-            rf'<p><img src="data:image/png;base64,{img}" alt="test"\s*/?></p>\Z',
-            md(f"![test](data:image/png;base64,{img})"),
-        )
+    img = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4"
+        "//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg=="
+    )
+    assert re.match(
+        rf'<p><img src="data:image/png;base64,{img}" alt="test"\s*/?></p>\Z',
+        md(f"![test](data:image/png;base64,{img})"),
+    )
 
 
 def test_markdown_linking(pad, builder):
     blog_index = pad.get("/blog", page_num=1)
 
     prog, _ = builder.build(blog_index)
-    with prog.artifacts[0].open("rb") as f:
-        assert (
-            b'Look at my <a href="2015/12/post1/hello.txt">' b"attachment</a>"
-        ) in f.read()
+    content = Path(prog.primary_artifact.dst_filename).read_bytes()
+    assert (
+        b'Look at my <a href="2015/12/post1/hello.txt">' b"attachment</a>"
+    ) in content
 
     blog_post = pad.get("/blog/post1")
 
     prog, _ = builder.build(blog_post)
-    with prog.artifacts[0].open("rb") as f:
-        assert b'Look at my <a href="hello.txt">' b"attachment</a>" in f.read()
+    content = Path(prog.primary_artifact.dst_filename).read_bytes()
+    assert b'Look at my <a href="hello.txt">' b"attachment</a>" in content
 
 
 def test_markdown_images(pad, builder):
     blog_index = pad.get("/blog", page_num=1)
 
     prog, _ = builder.build(blog_index)
-    with prog.artifacts[0].open("rb") as f:
-        assert re.search(
-            rb'This is an image <img src="2015/12/post1/logo.png" alt="logo"\s*/?>.',
-            f.read(),
-        )
+    assert re.search(
+        rb'This is an image <img src="2015/12/post1/logo.png" alt="logo"\s*/?>.',
+        Path(prog.primary_artifact.dst_filename).read_bytes(),
+    )
 
     blog_post = pad.get("/blog/post1")
 
     prog, _ = builder.build(blog_post)
-    with prog.artifacts[0].open("rb") as f:
-        assert re.search(
-            rb'This is an image <img src="logo.png" alt="logo"\s*/?>.',
-            f.read(),
-        )
+    assert re.search(
+        rb'This is an image <img src="logo.png" alt="logo"\s*/?>.',
+        Path(prog.primary_artifact.dst_filename).read_bytes(),
+    )
 
 
 def test_markdown_warns_on_invalid_options(env):
@@ -127,94 +123,94 @@ def test_markdown_does_not_warn_on_valid_options(env, resolve_links):
     assert field.options["resolve_links"] == resolve_links
 
 
+@pytest.mark.usefixtures("dummy_ctx")
 def test_string(env, pad):
     field = make_field(env, "string")
 
-    with Context(pad=pad):
-        rv = field.deserialize_value("", pad=pad)
-        assert rv == ""
+    rv = field.deserialize_value("", pad=pad)
+    assert rv == ""
 
-        rv = field.deserialize_value(None, pad=pad)
-        assert isinstance(rv, Undefined)
+    rv = field.deserialize_value(None, pad=pad)
+    assert isinstance(rv, Undefined)
 
-        rv = field.deserialize_value("foo\nbar", pad=pad)
-        assert rv == "foo"
+    rv = field.deserialize_value("foo\nbar", pad=pad)
+    assert rv == "foo"
 
-        rv = field.deserialize_value(" 123 ", pad=pad)
-        assert rv == "123"
+    rv = field.deserialize_value(" 123 ", pad=pad)
+    assert rv == "123"
 
 
+@pytest.mark.usefixtures("dummy_ctx")
 def test_text(env, pad):
     field = make_field(env, "text")
 
-    with Context(pad=pad):
-        rv = field.deserialize_value("", pad=pad)
-        assert rv == ""
+    rv = field.deserialize_value("", pad=pad)
+    assert rv == ""
 
-        rv = field.deserialize_value(None, pad=pad)
-        assert isinstance(rv, Undefined)
+    rv = field.deserialize_value(None, pad=pad)
+    assert isinstance(rv, Undefined)
 
-        rv = field.deserialize_value("foo\nbar", pad=pad)
-        assert rv == "foo\nbar"
+    rv = field.deserialize_value("foo\nbar", pad=pad)
+    assert rv == "foo\nbar"
 
-        rv = field.deserialize_value(" 123 ", pad=pad)
-        assert rv == " 123 "
+    rv = field.deserialize_value(" 123 ", pad=pad)
+    assert rv == " 123 "
 
 
+@pytest.mark.usefixtures("dummy_ctx")
 def test_integer(env, pad):
     field = make_field(env, "integer")
 
-    with Context(pad=pad):
-        rv = field.deserialize_value("", pad=pad)
-        assert isinstance(rv, BadValue)
+    rv = field.deserialize_value("", pad=pad)
+    assert isinstance(rv, BadValue)
 
-        rv = field.deserialize_value(None, pad=pad)
-        assert isinstance(rv, Undefined)
+    rv = field.deserialize_value(None, pad=pad)
+    assert isinstance(rv, Undefined)
 
-        rv = field.deserialize_value("42", pad=pad)
-        assert rv == 42
+    rv = field.deserialize_value("42", pad=pad)
+    assert rv == 42
 
-        rv = field.deserialize_value(" 23 ", pad=pad)
-        assert rv == 23
+    rv = field.deserialize_value(" 23 ", pad=pad)
+    assert rv == 23
 
 
+@pytest.mark.usefixtures("dummy_ctx")
 def test_float(env, pad):
     field = make_field(env, "float")
 
-    with Context(pad=pad):
-        rv = field.deserialize_value("", pad=pad)
-        assert isinstance(rv, BadValue)
+    rv = field.deserialize_value("", pad=pad)
+    assert isinstance(rv, BadValue)
 
-        rv = field.deserialize_value(None, pad=pad)
-        assert isinstance(rv, Undefined)
+    rv = field.deserialize_value(None, pad=pad)
+    assert isinstance(rv, Undefined)
 
-        rv = field.deserialize_value("42", pad=pad)
-        assert rv == 42.0
+    rv = field.deserialize_value("42", pad=pad)
+    assert rv == 42.0
 
-        rv = field.deserialize_value(" 23.0 ", pad=pad)
-        assert rv == 23.0
+    rv = field.deserialize_value(" 23.0 ", pad=pad)
+    assert rv == 23.0
 
-        rv = field.deserialize_value("-23.5", pad=pad)
-        assert rv == -23.5
+    rv = field.deserialize_value("-23.5", pad=pad)
+    assert rv == -23.5
 
 
+@pytest.mark.usefixtures("dummy_ctx")
 def test_boolean(env, pad):
     field = make_field(env, "boolean")
 
-    with Context(pad=pad):
-        rv = field.deserialize_value("", pad=pad)
-        assert isinstance(rv, BadValue)
+    rv = field.deserialize_value("", pad=pad)
+    assert isinstance(rv, BadValue)
 
-        rv = field.deserialize_value(None, pad=pad)
-        assert isinstance(rv, Undefined)
+    rv = field.deserialize_value(None, pad=pad)
+    assert isinstance(rv, Undefined)
 
-        for s in "true", "TRUE", "True", "1", "yes":
-            rv = field.deserialize_value(s, pad=pad)
-            assert rv is True
+    for s in "true", "TRUE", "True", "1", "yes":
+        rv = field.deserialize_value(s, pad=pad)
+        assert rv is True
 
-        for s in "false", "FALSE", "False", "0", "no":
-            rv = field.deserialize_value(s, pad=pad)
-            assert rv is False
+    for s in "false", "FALSE", "False", "0", "no":
+        rv = field.deserialize_value(s, pad=pad)
+        assert rv is False
 
 
 dt = datetime.datetime
@@ -229,10 +225,11 @@ dt = datetime.datetime
         ("2020-02-03 01:02:03", dt(2020, 2, 3, 1, 2, 3)),
     ],
 )
+@pytest.mark.usefixtures("dummy_ctx")
 def test_datetime_no_timezone(env, pad, value, expected):
     field = make_field(env, "datetime")
-    with Context(pad=pad):
-        rv = field.deserialize_value(value, pad=pad)
+
+    rv = field.deserialize_value(value, pad=pad)
 
     assert rv.replace(tzinfo=None) == expected
     assert rv.tzinfo is None
@@ -269,10 +266,10 @@ def utc(
         ("2016-04-30 01:02:03 KST+0900", utc(2016, 4, 29, 16, 2, 3)),
     ],
 )
+@pytest.mark.usefixtures("dummy_ctx")
 def test_datetime_timezone(env, pad, value, expected):
     field = make_field(env, "datetime")
-    with Context(pad=pad):
-        rv = field.deserialize_value(value, pad=pad)
+    rv = field.deserialize_value(value, pad=pad)
     assert rv.astimezone(expected.tzinfo) == expected
 
 
@@ -294,17 +291,17 @@ def test_datetime_timezone(env, pad, value, expected):
         "1970-01-01 12:34 very/long/timezone" + "e" * 1024,
     ],
 )
+@pytest.mark.usefixtures("dummy_ctx")
 def test_datetime_invalid(env, pad, value):
     field = make_field(env, "datetime")
-    with Context(pad=pad):
-        rv = field.deserialize_value(value, pad=pad)
+    rv = field.deserialize_value(value, pad=pad)
     assert isinstance(rv, BadValue)
 
 
+@pytest.mark.usefixtures("dummy_ctx")
 def test_datetime_missing(env, pad):
     field = make_field(env, "datetime")
-    with Context(pad=pad):
-        rv = field.deserialize_value(None, pad=pad)
+    rv = field.deserialize_value(None, pad=pad)
     assert isinstance(rv, Undefined)
     assert rv._undefined_hint is not None
     assert "Missing value" in rv._undefined_hint

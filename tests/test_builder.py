@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os.path
+import weakref
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -30,7 +32,6 @@ def test_basic_build(pad, builder):
     assert artifact in build_state.updated_artifacts
     assert artifact.artifact_id == "index.html"
     assert set(artifact.sources) == set(root.iter_source_filenames())
-    assert artifact.updated
     assert artifact.extra is None
     assert artifact.config_hash is None
 
@@ -99,12 +100,8 @@ def test_child_sources_pagination(pad, builder):
 def test_basic_artifact_current_test(pad, builder, reporter):
     post1 = pad.get("blog/post1")
 
-    def build():
-        reporter.clear()
-        prog, _ = builder.build(post1)
-        return prog.artifacts[0]
-
-    artifact = build()
+    build_result = builder.build(post1)
+    artifact = build_result.primary_artifact
 
     assert reporter.get_major_events() == [
         (
@@ -151,11 +148,9 @@ def test_basic_artifact_current_test(pad, builder, reporter):
         "models/blog-post.ini",
     }
 
-    assert artifact.is_current
-
-    artifact = build()
-
-    assert artifact.is_current
+    reporter.clear()
+    build_result2 = builder.build(post1)
+    artifact2 = build_result2.primary_artifact
 
     assert reporter.get_major_events() == [
         (
@@ -167,7 +162,7 @@ def test_basic_artifact_current_test(pad, builder, reporter):
         (
             "start-artifact-build",
             {
-                "artifact": artifact,
+                "artifact": artifact2,
                 "is_current": True,
             },
         ),
@@ -180,7 +175,7 @@ def test_basic_artifact_current_test(pad, builder, reporter):
         (
             "finish-artifact-build",
             {
-                "artifact": artifact,
+                "artifact": artifact2,
             },
         ),
         (
@@ -193,20 +188,16 @@ def test_basic_artifact_current_test(pad, builder, reporter):
 
 
 def test_basic_template_rendering(pad, builder):
-    root = pad.root
-
-    prog, _ = builder.build(root)
+    prog, _ = builder.build(pad.root)
     artifact = prog.artifacts[0]
 
-    with artifact.open("rb") as f:
-        rv = f.read().decode("utf-8")
-
     assert artifact.artifact_id == "index.html"
+    content = Path(artifact.dst_filename).read_text("utf-8")
 
-    assert "<title>My Website</title>" in rv
-    assert "<h1>Welcome</h1>" in rv
-    assert '<link href="static/style.css" rel="stylesheet">' in rv
-    assert "<p>Welcome to this pretty nifty website.</p>" in rv
+    assert "<title>My Website</title>" in content
+    assert "<h1>Welcome</h1>" in content
+    assert '<link href="static/style.css" rel="stylesheet">' in content
+    assert "<p>Welcome to this pretty nifty website.</p>" in content
 
 
 def test_attachment_copying(pad, builder):
@@ -217,10 +208,8 @@ def test_attachment_copying(pad, builder):
     artifact = prog.artifacts[0]
 
     assert artifact.artifact_id == "hello.txt"
-
-    with artifact.open("rb") as f:
-        rv = f.read().decode("utf-8").strip()
-        assert rv == "Hello I am an Attachment"
+    content = Path(artifact.dst_filename).read_text("utf-8")
+    assert content.strip() == "Hello I am an Attachment"
 
 
 def test_asset_processing(pad, builder):
@@ -232,9 +221,8 @@ def test_asset_processing(pad, builder):
     assert assets[0].name == "demo.css"
 
     prog, _ = builder.build(assets[0])
-    with prog.artifacts[0].open("rb") as f:
-        rv = f.read().decode("utf-8").strip()
-        assert "color: red" in rv
+    content = Path(prog.primary_artifact.dst_filename).read_text("utf-8")
+    assert "color: red" in content
 
 
 def test_included_assets(pad, builder):
@@ -444,13 +432,13 @@ def test_PathCache_to_source_id_with_symlinked_project(data_path, tmp_path):
 ################################################################
 
 
-def test_Artifact_open_encoding(builder):
-    build_state = builder.new_build_state()
-    artifact = build_state.new_artifact("dummy-artifact", sources=())
-    with artifact.open("w", encoding="iso-8859-1") as fp:
-        fp.write("Ciarán")
-    with artifact.open("r", encoding="iso-8859-1") as fp:
-        assert fp.read() == "Ciarán"
+def test_Artifact_open_encoding(dummy_artifact_txn):
+    with dummy_artifact_txn:
+        with dummy_artifact_txn.open("w", encoding="iso-8859-1") as fp:
+            fp.write("Ciarán")
+
+    content = Path(dummy_artifact_txn.dst_filename).read_bytes()
+    assert content == b"Ciar\xe1n"
 
 
 def test_FileInfo_unchanged(env, tmp_path):
@@ -531,6 +519,17 @@ def test_FileInfo_raises_type_error(env, tmp_path):
     file_info = FileInfo(env, tmp_path)
     with pytest.raises(TypeError, match="must be a FileInfo"):
         file_info.unchanged(tmp_path)
+
+
+def test_build_state_reference_cycle(pad, builder):
+    # Check that there are no reference cycles preventing build_state from
+    # being immediately collected.
+    collected = mock.Mock(spec=(), name="collected")
+
+    prog, build_state = builder.build(pad.root)
+    weakref.finalize(build_state, collected)
+    del prog, build_state
+    assert collected.call_count == 1
 
 
 @pytest.mark.parametrize(

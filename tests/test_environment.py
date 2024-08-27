@@ -5,10 +5,11 @@ import re
 import sys
 from html import unescape
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
-import lektor.context
+import lektor.environment
 from lektor.db import Pad
 from lektor.environment import Environment
 
@@ -45,13 +46,17 @@ def source_path():
 
 
 @pytest.fixture
-def bogus_context(scratch_pad, source_path):
-    # Construct a Context that has a source, without going through all
-    # all the steps necessary to construct an Artifact.
-    with lektor.context.Context(pad=scratch_pad) as ctx:
-        if source_path is not None:
-            ctx.source = scratch_pad.get(source_path)
-        yield
+def dummy_ctx(dummy_ctx, source_path):
+    if source_path is None:
+        source = None
+    else:
+        source = dummy_ctx.pad.get(source_path)
+
+    artifact = dummy_ctx.artifact_txn.artifact
+    artifact.source_obj = source
+    if source is not None:
+        artifact.sources = tuple(source.iter_source_filenames())
+    return dummy_ctx
 
 
 def test_jinja2_feature_autoescape(compile_template):
@@ -74,13 +79,13 @@ def test_jinja2_feature_do(compile_template):
 
 
 @pytest.mark.parametrize("source_path", [None, "/"])
-@pytest.mark.usefixtures("bogus_context")
+@pytest.mark.usefixtures("dummy_ctx")
 def test_jinja2_markdown_filter(compile_template):
     tmpl = compile_template("{{ '**word**' | markdown }}")
     assert "<strong>word</strong>" in tmpl.render()
 
 
-@pytest.mark.usefixtures("bogus_context")
+@pytest.mark.usefixtures("dummy_ctx")
 def test_jinja2_markdown_filter_resolve_links(compile_template):
     tmpl = compile_template(
         "{{ '[subpage](sub-page)' | markdown(resolve_links='always') }}"
@@ -96,7 +101,7 @@ def test_jinja2_markdown_filter_resolve_links(compile_template):
         ("/", "never"),
     ],
 )
-@pytest.mark.usefixtures("bogus_context")
+@pytest.mark.usefixtures("dummy_ctx")
 def test_jinja2_markdown_filter_noresolve_links(compile_template, resolve_links):
     tmpl = compile_template(
         f"{{{{ '[subpage](sub-page)' | markdown(resolve_links={resolve_links!r}) }}}}"
@@ -105,7 +110,7 @@ def test_jinja2_markdown_filter_noresolve_links(compile_template, resolve_links)
 
 
 @pytest.mark.parametrize("source_path", [None])
-@pytest.mark.usefixtures("bogus_context")
+@pytest.mark.usefixtures("dummy_ctx")
 def test_jinja2_markdown_filter_resolve_raises_if_no_source_obj(compile_template):
     tmpl = compile_template(
         "{{ '[subpage](sub-page)' | markdown(resolve_links='always') }}"
@@ -137,11 +142,11 @@ def test_dateformat_filter(render_string):
     assert render_string(tmpl, dt=dt) == "2001-02-03"
 
 
+@pytest.mark.usefixtures("dummy_ctx")
 def test_datetimeformat_filter_not_inlined(pad):
     template = pad.env.jinja_env.from_string("{{ 1678749806 | datetimeformat }}")
     en_date = template.render()
-    with lektor.context.Context(pad=pad) as ctx:
-        ctx.source = pad.get("/", alt="de")
+    with mock.patch.object(lektor.environment, "get_locale", return_value="de_DE"):
         de_date = template.render()
     assert en_date != de_date
 
@@ -202,9 +207,7 @@ def test_bag_gets_site_from_jinja_context(
     assert template.render(site=scratch_pad) == "bar"
 
 
-def test_bag_gets_site_from_lektor_context(
-    scratch_env: Environment, scratch_pad: Pad
-) -> None:
+@pytest.mark.usefixtures("dummy_ctx")
+def test_bag_gets_site_from_lektor_context(scratch_env: Environment) -> None:
     template = scratch_env.jinja_env.from_string("{{ bag('testbag.foo') }}")
-    with lektor.context.Context(pad=scratch_pad):
-        assert template.render() == "bar"
+    assert template.render() == "bar"

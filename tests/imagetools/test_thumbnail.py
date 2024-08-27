@@ -13,9 +13,8 @@ import PIL
 import pytest
 from pytest import approx
 
-from lektor.builder import Artifact
+from lektor.builder import ArtifactTransaction
 from lektor.builder import Builder
-from lektor.context import Context
 from lektor.db import Image
 from lektor.imagetools.image_info import get_image_info
 from lektor.imagetools.thumbnail import _compute_cropbox
@@ -236,7 +235,7 @@ def test_create_artifact(dummy_jpg_path):
     _create_artifact(
         dummy_jpg_path,
         thumbnail_params,
-        mock.Mock(spec=Artifact, wraps=dummy_artifact),
+        mock.Mock(spec=ArtifactTransaction, wraps=dummy_artifact),
     )
     thumb = dummy_artifact.image
     assert thumb is not None
@@ -253,7 +252,7 @@ def test_create_artifact_strips_metadata():
     _create_artifact(
         source_image,
         thumbnail_params,
-        mock.Mock(spec=Artifact, wraps=dummy_artifact),
+        mock.Mock(spec=ArtifactTransaction, wraps=dummy_artifact),
     )
     assert dummy_artifact.image is not None
     metadata_keys = set(dummy_artifact.image.info) - jfif_info_keys
@@ -284,13 +283,6 @@ def dummy_jpg_path(tmp_path_factory):
     with dummy_jpg.open("wb") as fp:
         im.save(fp, "JPEG")
     return dummy_jpg
-
-
-@pytest.fixture
-def ctx(builder):
-    build_state = builder.new_build_state()
-    with Context(build_state.new_artifact("dummy-artifact")) as ctx:
-        yield ctx
 
 
 @pytest.mark.parametrize(
@@ -341,15 +333,22 @@ def ctx(builder):
     ],
 )
 def test_make_image_thumbnail(
-    ctx, source_url_path, kwargs, expected_size, thumbnail_url_path, dummy_jpg_path
+    dummy_ctx,
+    source_url_path,
+    kwargs,
+    expected_size,
+    thumbnail_url_path,
+    dummy_jpg_path,
 ):
-    thumbnail = make_image_thumbnail(ctx, dummy_jpg_path, source_url_path, **kwargs)
+    thumbnail = make_image_thumbnail(
+        dummy_ctx, dummy_jpg_path, source_url_path, **kwargs
+    )
     assert (thumbnail.width, thumbnail.height) == expected_size
     assert thumbnail.url_path == thumbnail_url_path
     if "@" in thumbnail_url_path:
-        assert len(ctx.sub_artifacts) == 1
+        assert len(dummy_ctx.sub_artifacts) == 1
     else:
-        assert len(ctx.sub_artifacts) == 0  # no implicit upscale
+        assert len(dummy_ctx.sub_artifacts) == 0  # no implicit upscale
 
 
 @pytest.mark.parametrize(
@@ -359,16 +358,16 @@ def test_make_image_thumbnail(
         ({"width": 8, "mode": ThumbnailMode.CROP}, "requires both"),
     ],
 )
-def test_make_image_thumbnail_invalid_params(ctx, params, match, dummy_jpg_path):
+def test_make_image_thumbnail_invalid_params(dummy_ctx, params, match, dummy_jpg_path):
     with pytest.raises(ValueError, match=match):
-        make_image_thumbnail(ctx, dummy_jpg_path, "/test.jpg", **params)
-    assert len(ctx.sub_artifacts) == 0
+        make_image_thumbnail(dummy_ctx, dummy_jpg_path, "/test.jpg", **params)
+    assert len(dummy_ctx.sub_artifacts) == 0
 
 
-def test_make_image_thumbnail_unknown_image_format(ctx, tmp_path):
+def test_make_image_thumbnail_unknown_image_format(dummy_ctx, tmp_path):
     with pytest.raises(RuntimeError, match="unknown"):
-        make_image_thumbnail(ctx, NONIMAGE_FILE_PATH, "/test.jpg", width=80)
-    assert len(ctx.sub_artifacts) == 0
+        make_image_thumbnail(dummy_ctx, NONIMAGE_FILE_PATH, "/test.jpg", width=80)
+    assert len(dummy_ctx.sub_artifacts) == 0
 
 
 @pytest.fixture
@@ -383,20 +382,24 @@ def dummy_svg_file(tmp_path):
     return svg_file
 
 
-def test_make_image_thumbnail_svg(ctx, dummy_svg_file):
+def test_make_image_thumbnail_svg(dummy_ctx, dummy_svg_file):
     svg_file = dummy_svg_file(width="400px", height="300px")
     thumbnail = make_image_thumbnail(
-        ctx, svg_file, "/urlpath/dummy.svg", width=80, height=60
+        dummy_ctx, svg_file, "/urlpath/dummy.svg", width=80, height=60
     )
     assert (thumbnail.width, thumbnail.height) == (80, 60)
     assert thumbnail.url_path == "/urlpath/dummy.svg"
-    assert len(ctx.sub_artifacts) == 0
+    assert len(dummy_ctx.sub_artifacts) == 0
 
 
-def test_make_image_thumbnail_svg_fit_mode_fails_if_missing_dim(ctx, dummy_svg_file):
+def test_make_image_thumbnail_svg_fit_mode_fails_if_missing_dim(
+    dummy_ctx, dummy_svg_file
+):
     svg_file = dummy_svg_file(width="400px")  # missing height
     with pytest.raises(ValueError, match="Cannot determine aspect ratio"):
-        make_image_thumbnail(ctx, svg_file, "/urlpath/dummy.svg", width=80, height=60)
+        make_image_thumbnail(
+            dummy_ctx, svg_file, "/urlpath/dummy.svg", width=80, height=60
+        )
 
 
 def test_Thumbnail_str():

@@ -3,9 +3,7 @@ from __future__ import annotations
 import inspect
 import os
 import shutil
-import sys
 from pathlib import Path
-from unittest import mock
 from urllib.parse import parse_qsl
 from urllib.parse import urljoin
 from urllib.parse import urlparse
@@ -21,6 +19,7 @@ from lektor.admin.modules import livereload
 from lektor.admin.modules import serve
 from lektor.assets import Asset
 from lektor.builder import Artifact
+from lektor.builder import ArtifactId
 from lektor.buildfailures import FailureController
 from lektor.db import Record
 from lektor.environment import Environment
@@ -105,8 +104,7 @@ def make_dummy_artifact(tmp_path):
         if content is not None:
             path.write_text(content)
         return Artifact(
-            build_state=mock.Mock(name="build_state"),
-            artifact_id=artifact_id,
+            artifact_id=ArtifactId(artifact_id),
             dst_filename=str(path),
             sources=[],
         )
@@ -274,18 +272,6 @@ class TestArtifactServer:
     @pytest.fixture
     def failure_controller(self, pad, output_path):
         return FailureController(pad, output_path)
-
-    @pytest.fixture
-    def failed_artifact(self, mocker, failure_controller):
-        artifact_id = "failed/index.html"
-        try:
-            raise RuntimeError("Failure")
-        except Exception:
-            failure_controller.store_failure(artifact_id, sys.exc_info())
-        try:
-            yield mocker.NonCallableMock(name="Artifact", artifact_id=artifact_id)
-        finally:
-            failure_controller.clear_failure(artifact_id)
 
     @pytest.mark.parametrize(
         "url_path, source_path",

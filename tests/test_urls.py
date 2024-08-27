@@ -4,7 +4,6 @@ import re
 
 import pytest
 
-from lektor.context import Context
 from lektor.environment import Environment
 from lektor.reporter import BufferReporter
 from lektor.sourceobj import VirtualSourceObject
@@ -128,14 +127,7 @@ def test_url_to_page_with_explicit_alt(pad, alt, expected):
     assert page1.url_to(page2, alt=alt) == expected
 
 
-@pytest.fixture
-def build_context(builder):
-    build_state = builder.new_build_state()
-    with Context(build_state.new_artifact("dummy-artifact")) as ctx:
-        yield ctx
-
-
-@pytest.mark.usefixtures("build_context")
+@pytest.mark.usefixtures("dummy_ctx")
 def test_url_to_thumbnail(pad):
     extra_de = pad.get("/extra", alt="de")
     thumbnail = pad.get("/test.jpg").thumbnail(42)

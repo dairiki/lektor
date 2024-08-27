@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import sys
 import time
 import traceback
@@ -8,10 +9,10 @@ from contextlib import contextmanager
 from traceback import TracebackException
 from typing import Any
 from typing import Callable
+from typing import Collection
 from typing import Iterable
 from typing import Iterator
 from typing import NamedTuple
-from typing import Sequence
 from typing import TYPE_CHECKING
 from typing import TypedDict
 
@@ -40,8 +41,9 @@ if TYPE_CHECKING:
     from lektor.builder import Artifact
     from lektor.builder import ArtifactBuildFunc
     from lektor.builder import ArtifactId
-    from lektor.builder import artifacts_row
+    from lektor.builder import ArtifactsRow
     from lektor.builder import SourceId
+    from lektor.builder import VsourceArtifactsRow
     from lektor.builder import Builder
     from lektor.environment import Environment
     from lektor.sourceobj import SourceObject
@@ -99,6 +101,13 @@ class Reporter:
         self.builder_stack: list[Builder] = []
         self.artifact_stack: list[Artifact] = []
         self.source_stack: list[SourceObject] = []
+
+    def copy(self) -> Self:
+        clone = copy.copy(self)
+        clone.builder_stack = list(self.builder_stack)
+        clone.artifact_stack = list(self.artifact_stack)
+        clone.source_stack = list(self.source_stack)
+        return clone
 
     def push(self) -> None:
         _reporter_stack.push(self)
@@ -236,7 +245,9 @@ class Reporter:
     def report_build_all_failure(self, failures: int) -> None:
         pass
 
-    def report_dependencies(self, dependencies: Iterable[artifacts_row]) -> None:
+    def report_dependencies(
+        self, dependencies: Iterable[ArtifactsRow | VsourceArtifactsRow]
+    ) -> None:
         for dep in dependencies:
             self.report_debug_info("dependency", dep.source)
 
@@ -314,7 +325,7 @@ class BufferReporter(Reporter):
     def clear(self) -> None:
         self.buffer.clear()
 
-    def get_recorded_dependencies(self) -> Sequence[SourceId | StrPath]:
+    def get_recorded_dependencies(self) -> Collection[SourceId | StrPath]:
         deps = {
             data["value"]
             for event, data in self.buffer

@@ -24,13 +24,12 @@ from lektor.db import Record
 from lektor.exception import LektorException
 from lektor.i18n import I18nBlock
 from lektor.sourceobj import SourceObject
-from lektor.typing import ExcInfo
 
 if TYPE_CHECKING:
     from _typeshed import StrPath
 
+    from lektor.builder import ArtifactTransaction
     from lektor.builder import Artifact
-    from lektor.builder import ArtifactBuildFunc
     from lektor.builder import BuildState
     from lektor.builder import SourceId
 
@@ -77,6 +76,12 @@ class SourceInfo:
     # (This should probably be fixed at some point, so that all source paths are
     # normalized the same.)
 
+    # XXX: currently the filename is always normalized (relative with forward slashes,
+    # even on windows) when the SourceInfo is loaded from the build database. However
+    # the filenames that come from Record.iter_source_filenames() are not normalized.
+    # (This should probably be fixed at some point, so that all source paths are
+    # normalized the same.)
+
     def __post_init__(self) -> None:
         title_i18n = self.title_i18n
         en_title = title_i18n.setdefault("en", self.path)
@@ -102,10 +107,7 @@ class BuildProgram(Generic[_SourceObj_co]):
         default this is the first artifact produced.  This needs to be the
         one that corresponds to the URL of the source if it has one.
         """
-        try:
-            return self.artifacts[0]
-        except IndexError:
-            return None
+        return next(iter(self.get_artifacts()), None)
 
     def describe_source_record(self) -> SourceInfo | None:
         """Can be used to describe the source info by returning a
@@ -114,44 +116,17 @@ class BuildProgram(Generic[_SourceObj_co]):
         having to scan the file system.
         """
 
-    def build(self) -> None:
-        """Invokes the build program."""
-        if self._built:
-            raise RuntimeError("This build program was already used.")
-        self._built = True
+    def get_artifacts(self) -> Collection[Artifact]:
+        """Get top-level artifacts for this build program.
 
-        self.produce_artifacts()
+        Normally, a program will produce at most one top-level artifact, however
+        each top-level artifact, when built, may produce additional sub-artifacts which
+        also are to be built as part of the build process for this record.
 
-        sub_artifacts: list[tuple[Artifact, ArtifactBuildFunc]] = []
-        failures: list[ExcInfo] = []
-
-        gen = self.build_state.builder
-
-        def _build(artifact: Artifact, build_func: ArtifactBuildFunc) -> None:
-            ctx = gen.build_artifact(artifact, build_func)
-            if ctx is not None:
-                if ctx.exc_info is not None:
-                    failures.append(ctx.exc_info)
-                else:
-                    sub_artifacts.extend(ctx.sub_artifacts)
-
-        # Step one is building the artifacts that this build program
-        # knows about.
-        for artifact in self.artifacts:
-            _build(artifact, self.build_artifact)
-
-        # For as long as our ctx keeps producing sub artifacts, we
-        # want to process them as well.
-        while sub_artifacts and not failures:
-            artifact, build_func = sub_artifacts.pop()
-            _build(artifact, build_func)
-
-        # If we failed anywhere we want to mark *all* artifacts as dirty.
-        # This means that if a sub-artifact fails we also rebuild the
-        # parent next time around.
-        if failures:
-            for artifact in self.artifacts:
-                artifact.set_dirty_flag()
+        """
+        if len(self.artifacts) == 0:
+            self.produce_artifacts()
+        return self.artifacts
 
     def produce_artifacts(self) -> None:
         """This produces the artifacts for building.  Usually this only
@@ -174,7 +149,7 @@ class BuildProgram(Generic[_SourceObj_co]):
             )
         )
 
-    def build_artifact(self, artifact: Artifact, /) -> None:
+    def build_artifact(self, artifact_txn: ArtifactTransaction, /) -> None:
         """This is invoked for each artifact declared."""
 
     def iter_child_sources(self) -> Iterator[SourceObject]:
@@ -219,7 +194,7 @@ class PageBuildProgram(BuildProgram[Page]):
                 artifact_name, sources=list(self.source.iter_source_filenames())
             )
 
-    def build_artifact(self, artifact: Artifact, /) -> None:
+    def build_artifact(self, artifact_txn: ArtifactTransaction, /) -> None:
         # Record dependecies on all our sources and datamodel
         self.source.pad.db.track_record_dependency(self.source)
 
@@ -232,7 +207,7 @@ class PageBuildProgram(BuildProgram[Page]):
                 "for portability reasons (%r)." % self.source.url_path
             ) from error
 
-        artifact.render_template_into(self.source["_template"], this=self.source)
+        artifact_txn.render_template_into(self.source["_template"], this=self.source)
 
     def _iter_paginated_children(self) -> Iterator[Page]:
         total = self.source.datamodel.pagination_config.count_pages(self.source)
@@ -295,8 +270,8 @@ class AttachmentBuildProgram(BuildProgram[Attachment]):
                 self.source.url_path, sources=list(self.source.iter_source_filenames())
             )
 
-    def build_artifact(self, artifact: Artifact, /) -> None:
-        with artifact.open("wb") as df:
+    def build_artifact(self, artifact_txn: ArtifactTransaction, /) -> None:
+        with artifact_txn.open("wb") as df:
             with open(self.source.attachment_filename, "rb") as sf:
                 shutil.copyfileobj(sf, df)
 
@@ -308,8 +283,8 @@ class FileAssetBuildProgram(BuildProgram[File]):
             self.source.artifact_name, sources=[self.source.source_filename]
         )
 
-    def build_artifact(self, artifact: Artifact, /) -> None:
-        with artifact.open("wb") as df:
+    def build_artifact(self, artifact_txn: ArtifactTransaction, /) -> None:
+        with artifact_txn.open("wb") as df:
             with open(self.source.source_filename, "rb") as sf:
                 shutil.copyfileobj(sf, df)
 

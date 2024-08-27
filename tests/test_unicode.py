@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from lektor.build_programs import BuildError
@@ -24,8 +26,9 @@ def builder(pad, tmp_path):
 
 def test_unicode_project_folder(pad, builder):
     prog, _ = builder.build(pad.root)
-    with prog.artifacts[0].open("rb") as f:
-        assert f.read() == b"<h1>Hello</h1>\n<p>W\xc3\xb6rld</p>\n\n"
+
+    content = Path(prog.primary_artifact.dst_filename).read_bytes()
+    assert content == b"<h1>Hello</h1>\n<p>W\xc3\xb6rld</p>\n\n"
 
 
 def test_unicode_attachment_filename(pad, builder):
@@ -35,8 +38,8 @@ def test_unicode_attachment_filename(pad, builder):
         failures = reporter.get_failures()
         assert len(failures) == 0
 
-        with prog.artifacts[0].open("rb") as f:
-            assert f.read().rstrip() == b"attachment"
+        content = Path(prog.primary_artifact.dst_filename).read_bytes()
+        assert content.rstrip() == b"attachment"
 
 
 def test_bad_file_ignored(pad, builder):

@@ -16,7 +16,6 @@ from unittest import mock
 import pytest
 
 from lektor.cli import cli
-from lektor.context import Context
 from lektor.packages import add_package_to_project
 from lektor.pluginsystem import _check_dist_name
 from lektor.pluginsystem import _find_plugins
@@ -156,9 +155,9 @@ def test_get_plugin(env, dummy_plugin):
     assert get_plugin("dummy-plugin", env) == dummy_plugin
 
 
-def test_get_plugin_from_context(env, dummy_plugin):
-    with Context(pad=env.new_pad()):
-        assert get_plugin("dummy-plugin") == dummy_plugin
+@pytest.mark.usefixtures("dummy_ctx")
+def test_get_plugin_from_context(dummy_plugin):
+    assert get_plugin("dummy-plugin") == dummy_plugin
 
 
 def test_get_plugin_missing(env):
@@ -230,9 +229,9 @@ class TestPlugin:
         cfg = dummy_plugin.get_lektor_config()
         assert cfg["PROJECT"]["name"] == "Demo Project"
 
-    def test_get_lektor_config_from_context(self, dummy_plugin, env):
-        with Context(pad=env.new_pad()):
-            cfg = dummy_plugin.get_lektor_config()
+    @pytest.mark.usefixtures("dummy_ctx")
+    def test_get_lektor_config_from_context(self, dummy_plugin):
+        cfg = dummy_plugin.get_lektor_config()
         assert cfg["PROJECT"]["name"] == "Demo Project"
 
     def test_config_filename(self, dummy_plugin, env):
@@ -243,23 +242,24 @@ class TestPlugin:
         cfg = scratch_plugin.get_config()
         assert cfg["test_setting"] == "test value"
 
-    def test_get_config_records_dependency(self, scratch_plugin, scratch_env):
-        with Context(pad=scratch_env.new_pad()) as ctx:
-            scratch_plugin.get_config()
-        assert scratch_plugin.config_filename in ctx.referenced_dependencies
+    def test_get_config_records_dependency(
+        self, dummy_ctx, scratch_plugin, scratch_env
+    ):
+        scratch_plugin.get_config()
+        assert scratch_plugin.config_filename in dummy_ctx.referenced_dependencies
 
-    def test_get_config_returns_cached_value(self, scratch_plugin, scratch_env):
-        with Context(pad=scratch_env.new_pad()):
-            cfg = scratch_plugin.get_config()
-            cfg["is_cached"] = "indeed"
-            cfg = scratch_plugin.get_config()
+    @pytest.mark.usefixtures("dummy_ctx")
+    def test_get_config_returns_cached_value(self, scratch_plugin):
+        cfg = scratch_plugin.get_config()
+        cfg["is_cached"] = "indeed"
+        cfg = scratch_plugin.get_config()
         assert "is_cached" in cfg
 
-    def test_get_config_fresh(self, scratch_plugin, scratch_env):
-        with Context(pad=scratch_env.new_pad()):
-            cfg = scratch_plugin.get_config()
-            cfg["is_cached"] = "indeed"
-            cfg = scratch_plugin.get_config(fresh=True)
+    @pytest.mark.usefixtures("dummy_ctx")
+    def test_get_config_fresh(self, scratch_plugin):
+        cfg = scratch_plugin.get_config()
+        cfg["is_cached"] = "indeed"
+        cfg = scratch_plugin.get_config(fresh=True)
         assert "is_cached" not in cfg
 
     def test_emit(self, dummy_plugin):

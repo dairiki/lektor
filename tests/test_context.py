@@ -6,12 +6,6 @@ from lektor.context import disable_dependency_recording
 from lektor.context import get_ctx
 
 
-@pytest.fixture
-def dummy_ctx(pad):
-    with Context(pad=pad) as ctx:
-        yield ctx
-
-
 class Test_disable_dependency_recording:
     # pylint: disable=no-self-use
 

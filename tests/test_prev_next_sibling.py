@@ -5,6 +5,7 @@ import shutil
 
 import pytest
 
+from lektor.builder import ArtifactTransaction
 from lektor.builder import Builder
 from lektor.context import Context
 from lektor.db import Database
@@ -31,6 +32,23 @@ def pntest_env(pntest_project, save_sys_path):
 @pytest.fixture
 def pntest_pad(pntest_env):
     return Database(pntest_env).new_pad()
+
+
+@pytest.fixture
+def pntest_builder(pntest_pad, tmp_path):
+    output_path = tmp_path / "output"
+    output_path.mkdir()
+    return Builder(pntest_pad, os.fspath(output_path))
+
+
+@pytest.fixture
+def pntest_ctx(pntest_builder):
+    source_obj = pntest_builder.pad.root
+    build_state = pntest_builder.new_build_state()
+    artifact = build_state.new_artifact("dummy-artifact", source_obj=source_obj)
+    with ArtifactTransaction(build_state, artifact) as artifact_txn:
+        with Context(artifact_txn) as ctx:
+            yield ctx
 
 
 class DependencyReporter(Reporter):
@@ -110,14 +128,14 @@ def test_prev_next_dependencies(tmp_path, pntest_env, pntest_reporter):
     assert "content/post2/contents.lr" not in reporter.deps["post4"]
 
 
+@pytest.mark.usefixtures("pntest_ctx")
 def test_prev_next_virtual_resolver(pntest_pad):
-    with Context(pad=pntest_pad):
-        siblings = pntest_pad.get("post2@siblings")
-        assert isinstance(siblings, Siblings)
-        assert siblings.path == "/post2@siblings"
-        assert siblings.record["_id"] == "post2"
-        assert siblings.prev_page["_id"] == "post1"
-        assert siblings.next_page["_id"] == "post4"
+    siblings = pntest_pad.get("post2@siblings")
+    assert isinstance(siblings, Siblings)
+    assert siblings.path == "/post2@siblings"
+    assert siblings.record["_id"] == "post2"
+    assert siblings.prev_page["_id"] == "post1"
+    assert siblings.next_page["_id"] == "post4"
 
-        with pytest.raises(NotImplementedError):
-            siblings.url_path  # pylint: disable=pointless-statement
+    with pytest.raises(NotImplementedError):
+        siblings.url_path  # pylint: disable=pointless-statement
