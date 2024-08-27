@@ -588,12 +588,13 @@ def sort_normalize_string(s):
     return unicodedata.normalize("NFD", str(s).lower().strip())
 
 
-def get_dependent_url(url_path, suffix, ext=None):
-    url_directory, url_filename = posixpath.split(url_path)
-    url_base, url_ext = posixpath.splitext(url_filename)
-    if ext is None:
-        ext = url_ext
-    return posixpath.join(url_directory, url_base + "@" + suffix + ext)
+def get_dependent_url(url_path: str, suffix: str, ext: str | None = None) -> str:
+    path = PurePosixPath(url_path)
+    if ext is not None:
+        path = path.with_name(f"{path.stem}@{suffix}{ext}")
+    else:
+        path = path.with_stem(f"{path.stem}@{suffix}")
+    return str(path)
 
 
 @contextmanager

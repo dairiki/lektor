@@ -241,14 +241,18 @@ def _compute_cropbox(size: ImageSize, source_width: int, source_height: int) -> 
 
 
 SRGB_PROFILE: Final = PIL.ImageCms.createProfile("sRGB")
-SRGB_PROFILE_BYTES: Final = PIL.ImageCms.ImageCmsProfile(SRGB_PROFILE).tobytes()
+SRGB_PROFILE_BYTES: Final = PIL.ImageCms.ImageCmsProfile(
+    SRGB_PROFILE
+).tobytes()  # type: ignore[no-untyped-call]
 
 
 def _get_icc_transform(
     icc_profile: bytes, inMode: str, outMode: str
 ) -> PIL.ImageCms.ImageCmsTransform:
     """Construct ICC transform mapping icc_profile to sRGB."""
-    profile = PIL.ImageCms.getOpenProfile(io.BytesIO(icc_profile))
+    profile = PIL.ImageCms.getOpenProfile(  # type: ignore[no-untyped-call]
+        io.BytesIO(icc_profile)
+    )
     transform = PIL.ImageCms.buildTransform(profile, SRGB_PROFILE, inMode, outMode)
     assert isinstance(transform, PIL.ImageCms.ImageCmsTransform)
     return transform

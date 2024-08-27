@@ -219,14 +219,6 @@ module = [
     "lektor.admin.*",
     "lektor.build_programs",
     "lektor.databags",
-    "lektor.imagetools.*",
     "lektor.markdown.*",
 ]
-
-[[tool.mypy.overrides]]
-# We will fix the typing here in a bit...
-module = [
-    "lektor.imagetools.*",
-]
-warn_unused_ignores = false
 

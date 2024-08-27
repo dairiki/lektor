@@ -106,7 +106,7 @@ def get_image_orientation(image: PIL.Image.Image) -> TiffOrientation:
 
     For all of these reasons, we only check the Exif Orientation tag for JPEGs.
 
-    """  # pylint: disable=line-too-long # noqa: E501
+    """  # pylint: disable=line-too-long,useless-suppression # noqa: E501
     if image.format != "JPEG":
         return TiffOrientation.TOPLEFT
     exif = image.getexif()

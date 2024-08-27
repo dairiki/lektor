@@ -174,6 +174,8 @@ class EXIFInfo:
 
     """
 
+    _exif: PIL.Image.Exif
+
     def __init__(self, exif: PIL.Image.Exif):
         self._exif = exif
 
