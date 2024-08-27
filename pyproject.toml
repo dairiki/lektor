@@ -218,9 +218,7 @@ warn_return_any = false
 module = [
     "lektor.admin.*",
     "lektor.build_programs",
-    "lektor.builder",
     "lektor.databags",
-    "lektor.devserver",
     "lektor.imagetools.*",
     "lektor.markdown.*",
 ]
