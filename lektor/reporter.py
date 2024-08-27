@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import sys
+import threading
 import time
 import traceback
 import warnings
@@ -416,7 +417,12 @@ class CliReporter(Reporter):
         self.indentation -= 1
 
     def _write_line(self, text: str) -> None:
-        click.echo(" " * (self.indentation * 2) + text)
+        line = f"{'  ' * self.indentation} {text}"
+        current_thread = threading.current_thread()
+        if current_thread is not threading.main_thread():
+            line += style(f" {self.current_source}", fg="cyan")
+
+        click.echo(line)
 
     def _write_kv_info(self, key: str, value: object) -> None:
         self._write_line(f"{key}: {style(str(value), fg='yellow')}")
