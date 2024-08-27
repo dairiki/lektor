@@ -1281,7 +1281,7 @@ class Builder:
         lang: str | None = None,
         limit: int = 50,
         types: Collection[str] | None = None,
-    ) -> list[dict[str, str | dict[str, str]]]:
+    ) -> list[dict[str, str | list[dict[str, str]]]]:
         """Returns a list of files that match the query.  This requires that
         the source info is up to date and is primarily used by the admin to
         show files that exist.
