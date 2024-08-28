@@ -9,8 +9,10 @@ from weakref import ref as weakref
 from lektor.constants import PRIMARY_ALT
 from lektor.context import ignore_url_unaffecting_dependencies
 from lektor.reporter import reporter
+from lektor.typing import SupportsUrlPath
 from lektor.utils import is_path_child_of
 from lektor.utils import join_path
+
 
 if TYPE_CHECKING:
     from lektor.db import Pad
@@ -104,7 +106,7 @@ class SourceObject:
 
     def url_to(
         self,
-        path,  # : Union[str, "SourceObject", "SupportsUrlPath"]
+        path: str | SourceObject | SupportsUrlPath,
         alt: str | None = None,
         absolute: bool | None = None,
         external: bool | None = None,

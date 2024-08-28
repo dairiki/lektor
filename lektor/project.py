@@ -44,9 +44,9 @@ class Project:
             untrusted_to_os_path(inifile.get("project.path") or "."),
         )
 
-        themes = inifile.get("project.themes")
-        if themes is not None:
-            themes = [x.strip() for x in themes.split(",")]
+        packed_themes = inifile.get("project.themes")
+        if packed_themes is not None:
+            themes = [x.strip() for x in packed_themes.split(",")]
         else:
             themes = []
 

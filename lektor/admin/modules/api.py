@@ -1,3 +1,14 @@
+# from __future__ import annotations
+#
+# NB: Do not enable deferred annotation evaluation for now — probably until we drop
+# support for python 3.9.
+#
+# Marshmallow_dataclass need to be able to evaluate the types of the dataclasses it is
+# going to compute schema for. When deferred annotations are enabled, `pyupgrade`
+# converts `Dict[...]` to `dict[...]` (which is not evaulatable in python 3.9) and_
+# converts `Optional[...]` to `... | None` (which can not be evaluated in python
+# earlier than python 3.10.)
+#
 import os
 import posixpath
 from dataclasses import dataclass

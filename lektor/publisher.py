@@ -45,7 +45,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from lektor.environment import Environment
 
 
-def _parse_query(query: str, **kwargs: Any) -> MultiDict:
+def _parse_query(query: str, **kwargs: Any) -> MultiDict[str, str]:
     return MultiDict(urllib.parse.parse_qsl(query, **kwargs))
 
 
@@ -297,7 +297,7 @@ class RsyncPublisher(Publisher):
         credentials = credentials or {}
         argline = ["rsync", "-rclzv", "--exclude=.lektor"]
         target = []
-        env = {}
+        env: dict[str, str] = {}
 
         url = urlsplit(target_url)
         options = _parse_query(url.query, keep_blank_values=True)
@@ -958,7 +958,7 @@ class _CompatURLStr(str):
                  ...
     """
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):
             raise AttributeError(name)
         url = werkzeug_urls_URL(*urlsplit(self))

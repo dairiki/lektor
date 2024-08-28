@@ -4,6 +4,7 @@ from __future__ import annotations
 import dataclasses
 import io
 import math
+import os
 import posixpath
 from enum import Enum
 from functools import partial
@@ -260,7 +261,9 @@ def _convert_to_rgb(image: PIL.Image.Image) -> PIL.Image.Image:
         icc_profile = image.info.get("icc_profile")
         if icc_profile is not None:
             icc_transform = _get_icc_transform(icc_profile, image.mode, targetMode)
-            image = PIL.ImageCms.applyTransform(image, icc_transform)
+            transformed = PIL.ImageCms.applyTransform(image, icc_transform)
+            assert transformed is not None
+            image = transformed
             del image.info["icc_profile"]
         else:
             image = image.convert(targetMode)
@@ -381,7 +384,7 @@ def _create_thumbnail(
 
 
 def _create_artifact(
-    source_image: str | Path | SupportsRead[bytes],
+    source_image: str | bytes | Path | SupportsRead[bytes],
     thumbnail_params: ThumbnailParams,
     artifact: Artifact,
 ) -> None:
@@ -400,9 +403,7 @@ def _get_thumbnail_url_path(
     # leave ext unchanged from source if valid for the thumbnail format
     ext = thumbnail_params.get_ext(source_ext)
     suffix = thumbnail_params.get_tag()
-    return get_dependent_url(  # type: ignore[no-any-return]
-        source_url_path, suffix, ext=ext
-    )
+    return get_dependent_url(source_url_path, suffix, ext=ext)
 
 
 def make_image_thumbnail(
@@ -462,7 +463,7 @@ def make_image_thumbnail(
 
     ctx.add_sub_artifact(
         artifact_name=dst_url_path,
-        sources=[source_image],
+        sources=[os.fspath(source_image)],
         build_func=partial(_create_artifact, source_image, thumbnail_params),
     )
 

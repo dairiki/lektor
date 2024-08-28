@@ -10,6 +10,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any
 from typing import Callable
+from typing import Literal
 from typing import Mapping
 from typing import Tuple
 from typing import TYPE_CHECKING
@@ -23,7 +24,6 @@ from ._compat import UnidentifiedImageError
 from .image_info import TiffOrientation
 
 if TYPE_CHECKING:
-    from typing import Literal
     from _typeshed import SupportsRead
 
 if sys.version_info >= (3, 10):
@@ -396,7 +396,7 @@ class EXIFInfo:
         return orientation.is_transposed
 
 
-def read_exif(source: str | Path | SupportsRead[bytes]) -> EXIFInfo:
+def read_exif(source: str | bytes | Path | SupportsRead[bytes]) -> EXIFInfo:
     """Reads exif data from an image file."""
     try:
         with PIL.Image.open(source) as image:

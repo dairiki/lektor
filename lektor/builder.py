@@ -486,6 +486,8 @@ class FileInfo(_ArtifactSourceInfo):
             self._stat = None
         self._checksum = checksum
 
+    _stat: tuple[int, int, bool] | None
+
     def _get_stat(self):
         rv = self._stat
         if rv is not None:

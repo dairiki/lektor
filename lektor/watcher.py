@@ -12,11 +12,12 @@ from lektor.utils import get_cache_dir
 if TYPE_CHECKING:
     from _typeshed import StrPath
     from lektor.environment import Environment
+    from watchfiles.main import FileChange
 
 
 def watch_project(
     env: Environment, output_path: StrPath, **kwargs: Any
-) -> Generator[set[watchfiles.FileChange], None, None]:
+) -> Generator[set[FileChange], None, None]:
     """Watch project source files for changes.
 
     Returns an generator that yields sets of changes as they are noticed.

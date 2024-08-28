@@ -6,9 +6,9 @@ import os
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
-from typing import Union
 from zlib import adler32
 
+import werkzeug
 from flask import abort
 from flask import Blueprint
 from flask import current_app
@@ -30,18 +30,15 @@ from lektor.constants import PRIMARY_ALT
 from lektor.db import Record
 
 if TYPE_CHECKING:
-    from flask.typing import ResponseReturnValue
-    from flask.typing import ResponseValue
+    from _typeshed import StrPath
 
+    from flask.typing import ResponseReturnValue
     from lektor.builder import Artifact
     from lektor.buildfailures import BuildFailure
     from lektor.sourceobj import SourceObject
 
 
 bp = Blueprint("serve", __name__)
-
-
-Filename = Union[str, os.PathLike]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -89,7 +86,7 @@ def _inject_tooldrawer(
 
 def _send_html_for_editing(
     artifact: Artifact, tooldrawer_config: TooldrawerConfig, mimetype: str = "text/html"
-) -> ResponseValue:
+) -> Response:
     """Serve an HTML file, after mangling it to add an "edit pencil" button."""
     try:
         with open(artifact.dst_filename, "rb") as fp:
@@ -107,24 +104,21 @@ def _send_html_for_editing(
     return resp
 
 
-def _deduce_mimetype(filename: Filename) -> str:
+def _deduce_mimetype(filename: StrPath) -> str:
     mimetype = mimetypes.guess_type(filename)[0]
     if mimetype is None:
         mimetype = "application/octet-stream"
     return mimetype
 
 
-def _checked_send_file(
-    filename: Filename, mimetype: str | None = None
-) -> ResponseValue:
+def _checked_send_file(filename: StrPath, mimetype: str | None = None) -> Response:
     """Same as flask.send_file, except raises NotFound on file errors."""
     # NB: flask.send_file interprets relative paths relative to
     # current_app.root_path. We don't want that.
     try:
-        resp = send_file(os.path.abspath(filename), mimetype=mimetype)
+        return send_file(os.path.abspath(filename), mimetype=mimetype)
     except (FileNotFoundError, IsADirectoryError, PermissionError):
         abort(404)
-    return resp
 
 
 class HiddenRecordException(NotFound):
@@ -214,7 +208,7 @@ class ArtifactServer:
         )
         return url_for("url.edit", path=record.path, alt=alt)
 
-    def serve_artifact(self, url_path: str) -> ResponseValue:
+    def serve_artifact(self, url_path: str) -> werkzeug.Response:
         source = self.resolve_url_path(url_path)
 
         # If the request path does not end with a slash but we
@@ -253,12 +247,12 @@ class ArtifactServer:
         return _checked_send_file(artifact.dst_filename, mimetype=mimetype)
 
 
-def serve_artifact(path: str) -> ResponseValue:
+def serve_artifact(path: str) -> werkzeug.Response:
     lektor_context = get_lektor_context()
     return ArtifactServer(lektor_context).serve_artifact(path)
 
 
-def serve_file(path: str) -> ResponseValue:
+def serve_file(path: str) -> werkzeug.Response:
     """Serve file directly from Lektor's output directory."""
     assert isinstance(current_app, LektorApp)
     output_path = current_app.lektor_info.output_path
