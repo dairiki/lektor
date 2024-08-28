@@ -25,6 +25,7 @@ from lektor.constants import PRIMARY_ALT
 from lektor.context import Context
 from lektor.reporter import reporter
 from lektor.sourcesearch import find_files
+from lektor.utils import deprecated
 from lektor.utils import fs_enc
 from lektor.utils import process_extra_flags
 from lektor.utils import prune_file_and_folder
@@ -142,8 +143,12 @@ class BuildState:
             return self.path_cache.get_file_info(filename)
         return None
 
+    def to_source_id(self, filename):
+        return self.path_cache.to_source_id(filename)
+
+    @deprecated("renamed to to_source_id", version="3.4.0")
     def to_source_filename(self, filename):
-        return self.path_cache.to_source_filename(filename)
+        return self.to_source_id(filename)
 
     def get_virtual_source_info(self, virtual_source_path, alt=None):
         virtual_source = self.pad.get(virtual_source_path, alt=alt)
@@ -227,16 +232,16 @@ class BuildState:
                 file_info = FileInfo(
                     self.env, path, mtime, size, checksum, bool(is_dir)
                 )
-                filename = self.to_source_filename(file_info.filename)
-                found.add(filename)
-                yield filename, file_info
+                source_id = self.to_source_id(file_info.filename)
+                found.add(source_id)
+                yield source_id, file_info
 
         # In any case we also iterate over our direct sources, even if the
         # build state does not know about them yet.  This can be caused by
         # an initial build or a change in original configuration.
         for source in sources:
-            filename = self.to_source_filename(source)
-            if filename not in found:
+            source_id = self.to_source_id(source)
+            if source_id not in found:
                 yield source, None
 
     def write_source_info(self, info):
@@ -244,7 +249,7 @@ class BuildState:
         an instance of :class:`lektor.build_programs.SourceInfo`.
         """
         reporter.report_write_source_info(info)
-        source = self.to_source_filename(info.filename)
+        source_id = self.to_source_id(info.filename)
         con = self.connect_to_database()
         try:
             cur = con.cursor()
@@ -255,7 +260,7 @@ class BuildState:
                         (path, alt, lang, type, source, title)
                         values (?, ?, ?, ?, ?, ?)
                 """,
-                    [info.path, info.alt, lang, info.type, source, title],
+                    [info.path, info.alt, lang, info.type, source_id, title],
                 )
             con.commit()
         finally:
@@ -316,16 +321,16 @@ class BuildState:
         """Given a list of sources this checks if any of them are marked
         as dirty.
         """
-        sources = [self.to_source_filename(x) for x in sources]
-        if not sources:
+        source_ids = [self.to_source_id(x) for x in sources]
+        if not source_ids:
             return False
 
         cur.execute(
             """
             select source from dirty_sources where source in (%s) limit 1
         """
-            % ", ".join(["?"] * len(sources)),
-            sources,
+            % ", ".join(["?"] * len(source_ids)),
+            source_ids,
         )
         return cur.fetchone() is not None
 
@@ -785,30 +790,30 @@ class Artifact:
         """
 
         def operation(con):
-            primary_sources = {
-                self.build_state.to_source_filename(x) for x in self.sources
+            primary_source_ids = {
+                self.build_state.to_source_id(x) for x in self.sources
             }
 
-            seen = set()
+            seen: set[SourceId] = set()
             rows = []
             for source in chain(self.sources, dependencies or ()):
-                source = self.build_state.to_source_filename(source)
-                if source in seen:
+                source_id = self.build_state.to_source_id(source)
+                if source_id in seen:
                     continue
-                info = self.build_state.get_file_info(source)
+                info = self.build_state.get_file_info(source_id)
                 rows.append(
                     artifacts_row(
                         artifact=self.artifact_name,
-                        source=source,
+                        source=source_id,
                         source_mtime=info.mtime,
                         source_size=info.size,
                         source_checksum=info.checksum,
                         is_dir=info.is_dir,
-                        is_primary_source=source in primary_sources,
+                        is_primary_source=source_id in primary_source_ids,
                     )
                 )
 
-                seen.add(source)
+                seen.add(source_id)
 
             for v_source in virtual_dependencies or ():
                 checksum = v_source.get_checksum(self.build_state.path_cache)
@@ -879,14 +884,14 @@ class Artifact:
         """Clears the dirty flag for all sources."""
 
         def operation(con):
-            sources = [self.build_state.to_source_filename(x) for x in self.sources]
+            source_ids = [self.build_state.to_source_id(x) for x in self.sources]
             cur = con.cursor()
             cur.execute(
                 """
                 delete from dirty_sources where source in (%s)
             """
-                % ", ".join(["?"] * len(sources)),
-                list(sources),
+                % ", ".join(["?"] * len(source_ids)),
+                list(source_ids),
             )
             cur.close()
             reporter.report_dirty_flag(False)
@@ -899,11 +904,11 @@ class Artifact:
         """
 
         def operation(con):
-            sources = set()
+            source_ids = set()
             for source in self.sources:
-                sources.add(self.build_state.to_source_filename(source))
+                source_ids.add(self.build_state.to_source_id(source))
 
-            if not sources:
+            if not source_ids:
                 return
 
             cur = con.cursor()
@@ -911,7 +916,7 @@ class Artifact:
                 """
                 insert or replace into dirty_sources (source) values (?)
             """,
-                [(x,) for x in sources],
+                [(x,) for x in source_ids],
             )
             cur.close()
 
@@ -1036,16 +1041,16 @@ class Artifact:
 class PathCache:
     def __init__(self, env):
         self.file_info_cache = {}
-        self.source_filename_cache = {}
+        self.source_id_cache = {}
         self.env = env
 
-    def to_source_filename(self, filename):
+    def to_source_id(self, filename):
         """Given a path somewhere below the environment this will return the
         short source filename that is used internally.  Unlike the given
         path, this identifier is also platform independent.
         """
         key = filename
-        rv = self.source_filename_cache.get(key)
+        rv = self.source_id_cache.get(key)
         if rv is not None:
             return rv
         folder = os.path.abspath(self.env.root_path)
@@ -1062,8 +1067,12 @@ class PathCache:
                 "source folder (%r)" % (filename, self.env.root_path)
             )
         rv = filename.replace(os.path.sep, "/")
-        self.source_filename_cache[key] = rv
+        self.source_id_cache[key] = rv
         return rv
+
+    @deprecated("renamed to to_source_id", version="3.4.0")
+    def to_source_filename(self, filename):
+        return self.to_source_id(filename)
 
     def get_file_info(self, filename):
         """Returns the file info for a given file.  This will be cached

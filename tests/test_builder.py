@@ -398,12 +398,12 @@ def test_second_build_all_builds_nothing(scratch_builder, scratch_project_data):
         pytest.param(
             "symlinked-project",
             marks=pytest.mark.xfail(
-                reason="FIXME: PathCache.to_source_filename does not cope with symlinks"
+                reason="FIXME: PathCache.to_source_id does not cope with symlinks"
             ),
         ),
     ],
 )
-def test_BuildState_to_source_filename(param, data_path, tmp_path):
+def test_BuildState_to_source_id(param, data_path, tmp_path):
     demo_project = data_path / "demo-project"
     if "symlink" in param:
         tree = tmp_path / "tree"
@@ -416,7 +416,7 @@ def test_BuildState_to_source_filename(param, data_path, tmp_path):
     env = Project.from_path(tree).make_env(load_plugins=False)
     build_state = Builder(env.new_pad(), tmp_path / "output").new_build_state()
 
-    assert build_state.to_source_filename(str(demo_project / "filename")) == "filename"
+    assert build_state.to_source_id(str(demo_project / "filename")) == "filename"
 
 
 ################################################################
