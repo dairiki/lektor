@@ -163,12 +163,11 @@ class BuildState:
         """Returns a database connection for the build state db."""
         return self.builder.connect_to_database()
 
-    # FIXME: rename parameter to artifact_id
-    def get_destination_filename(self, artifact_name):
+    def get_destination_filename(self, artifact_id):
         """Returns the destination filename for an artifact name."""
         return os.path.join(
             self.builder.destination_path,
-            artifact_name.strip("/").replace("/", os.path.sep),
+            artifact_id.strip("/").replace("/", os.path.sep),
         )
 
     def artifact_id_from_destination_filename(self, filename):
@@ -201,18 +200,16 @@ class BuildState:
             config_hash=config_hash,
         )
 
-    # FIXME: rename parameter to artifact_id
-    def artifact_exists(self, artifact_name):
+    def artifact_exists(self, artifact_id):
         """Given an artifact name this checks if it was already produced."""
-        dst_filename = self.get_destination_filename(artifact_name)
+        dst_filename = self.get_destination_filename(artifact_id)
         return os.path.exists(dst_filename)
 
-    # FIXME: rename parameter to artifact_id
-    def get_artifact_dependency_infos(self, artifact_name, sources):
+    def get_artifact_dependency_infos(self, artifact_id, sources):
         con = self.connect_to_database()
         try:
             cur = con.cursor()
-            rv = list(self._iter_artifact_dependency_infos(cur, artifact_name, sources))
+            rv = list(self._iter_artifact_dependency_infos(cur, artifact_id, sources))
         finally:
             con.close()
         return rv
@@ -310,10 +307,8 @@ class BuildState:
         for source in to_clean:
             reporter.report_prune_source_info(source)
 
-    # FIXME: rename parameter to artifact_id
-    def remove_artifact(self, artifact_name):
+    def remove_artifact(self, artifact_id):
         """Removes an artifact from the build state."""
-        artifact_id = artifact_name
         con = self.connect_to_database()
         try:
             cur = con.cursor()
@@ -358,12 +353,12 @@ class BuildState:
         return rv[0] if rv else None
 
     # FIXME: rename parameter to artifact_id
-    def check_artifact_is_current(self, artifact_name, sources, config_hash):
+    def check_artifact_is_current(self, artifact_id, sources, config_hash):
         con = self.connect_to_database()
         cur = con.cursor()
         try:
             # The artifact config changed
-            if config_hash != self._get_artifact_config_hash(cur, artifact_name):
+            if config_hash != self._get_artifact_config_hash(cur, artifact_id):
                 return False
 
             # If one of our source files is explicitly marked as dirty in the
@@ -374,7 +369,7 @@ class BuildState:
             # If we do have an already existing artifact, we need to check if
             # any of the source files we depend on changed.
             for _, info in self._iter_artifact_dependency_infos(
-                cur, artifact_name, sources
+                cur, artifact_id, sources
             ):
                 # if we get a missing source info it means that we never
                 # saw this before.  This means we need to build it.
