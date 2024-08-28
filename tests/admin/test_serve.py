@@ -80,9 +80,9 @@ def test_inject_tooldrawer_adds_livereload(dummy_app, make_dummy_artifact):
     # in repl specially.  This results in an exception: "re.error: bad escape \u at
     # position [...]"
     dummy_app.register_blueprint(livereload.bp)
-    artifact = make_dummy_artifact(artifact_name="ARTIFACT_NAME")
+    artifact = make_dummy_artifact(artifact_id="ARTIFACT_ID")
     config = make_tooldrawer_config("EDIT_URL", artifact)
-    assert b"ARTIFACT_NAME" in serve._inject_tooldrawer(
+    assert b"ARTIFACT_ID" in serve._inject_tooldrawer(
         html=b"", tooldrawer_config=config
     )
 
@@ -96,15 +96,15 @@ def test_inject_tooldrawer_unicode_escapes():
 @pytest.fixture
 def make_dummy_artifact(tmp_path):
     def make_dummy_artifact(
-        artifact_name="test",
+        artifact_id="test",
         content="<html><head></head><body></body></html>",
     ):
-        path = tmp_path / f"{artifact_name}.html"
+        path = tmp_path / f"{artifact_id}.html"
         if content is not None:
             path.write_text(content)
         return Artifact(
             build_state=None,  # bogus
-            artifact_name=artifact_name,
+            artifact_id=artifact_id,
             dst_filename=str(path),
             sources=[],
         )
@@ -139,7 +139,7 @@ def test_send_html_for_editing_etag_depends_on_edit_url(tmp_path, make_dummy_art
 
 
 @pytest.mark.usefixtures("dummy_app_context")
-def test_send_html_for_editing_etag_depends_on_artifact_name(
+def test_send_html_for_editing_etag_depends_on_artifact_id(
     tmp_path, make_dummy_artifact
 ):
     artifact1 = make_dummy_artifact("test1")
@@ -274,15 +274,15 @@ class TestArtifactServer:
 
     @pytest.fixture
     def failed_artifact(self, mocker, failure_controller):
-        artifact_name = "failed/index.html"
+        artifact_id = "failed/index.html"
         try:
             raise RuntimeError("Failure")
         except Exception:
-            failure_controller.store_failure(artifact_name, sys.exc_info())
+            failure_controller.store_failure(artifact_id, sys.exc_info())
         try:
-            yield mocker.NonCallableMock(name="Artifact", artifact_name=artifact_name)
+            yield mocker.NonCallableMock(name="Artifact", artifact_id=artifact_id)
         finally:
-            failure_controller.clear_failure(artifact_name)
+            failure_controller.clear_failure(artifact_id)
 
     @pytest.mark.parametrize(
         "url_path, source_path",
@@ -353,7 +353,7 @@ class TestArtifactServer:
             a_s.resolve_directory_index(directory)
 
     @pytest.mark.parametrize(
-        "url_path, artifact_name, failing",
+        "url_path, artifact_id, failing",
         [
             ("de/extra/", "de/extra/index.html", False),
             ("dir_with_index_html/", None, False),
@@ -365,15 +365,15 @@ class TestArtifactServer:
             ("/extra/file.ext", "extra/file.ext", False),
         ],
     )
-    def test_build_primary_artifact(self, a_s, url_path, artifact_name, failing):
+    def test_build_primary_artifact(self, a_s, url_path, artifact_id, failing):
         source = a_s.resolve_url_path(url_path)
         assert source is not None
-        if artifact_name is None:
+        if artifact_id is None:
             with pytest.raises(NotFound):
                 a_s.build_primary_artifact(source)
         else:
             artifact, failure = a_s.build_primary_artifact(source)
-            assert artifact.artifact_name == artifact_name
+            assert artifact.artifact_id == artifact_id
             assert (failure is not None) == failing
 
     def test_build_primary_artifact_raises_404(self, a_s, pad):

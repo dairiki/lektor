@@ -174,7 +174,7 @@ class Reporter:
     def report_generic(self, message):
         pass
 
-    def report_pruned_artifact(self, artifact_name):
+    def report_pruned_artifact(self, artifact_id):
         pass
 
     @contextmanager
@@ -280,8 +280,8 @@ class BufferReporter(Reporter):
     def leave_source(self, start_time):
         self._emit("leave-source", source=self.current_source)
 
-    def report_pruned_artifact(self, artifact_name):
-        self._emit("pruned-artifact", artifact_name=artifact_name)
+    def report_pruned_artifact(self, artifact_id):
+        self._emit("pruned-artifact", artifact_id=artifact_id)
 
 
 class CliReporter(Reporter):
@@ -326,7 +326,7 @@ class CliReporter(Reporter):
             sign = click.style("X", fg="cyan")
         else:
             sign = click.style("U", fg="green")
-        self._write_line(f"{sign} {artifact.artifact_name}")
+        self._write_line(f"{sign} {artifact.artifact_id}")
 
         self.indent()
 
@@ -347,7 +347,7 @@ class CliReporter(Reporter):
         err = " ".join(
             "".join(traceback.format_exception_only(*exc_info[:2])).splitlines()
         ).strip()
-        self._write_line(f"{sign} {artifact.artifact_name} ({err})")
+        self._write_line(f"{sign} {artifact.artifact_id} ({err})")
 
         if not self.show_tracebacks:
             return
@@ -383,7 +383,7 @@ class CliReporter(Reporter):
 
     def report_sub_artifact(self, artifact):
         if self.show_artifact_internals:
-            self._write_kv_info("sub artifact", artifact.artifact_name)
+            self._write_kv_info("sub artifact", artifact.artifact_id)
 
     def report_debug_info(self, key, value):
         if self.show_debug_info:
@@ -402,8 +402,8 @@ class CliReporter(Reporter):
         if self.show_source_internals:
             self.outdent()
 
-    def report_pruned_artifact(self, artifact_name):
-        self._write_line("{} {}".format(style("D", fg="red"), artifact_name))
+    def report_pruned_artifact(self, artifact_id):
+        self._write_line("{} {}".format(style("D", fg="red"), artifact_id))
 
 
 null_reporter = NullReporter(None)

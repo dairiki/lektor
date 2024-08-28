@@ -22,7 +22,7 @@ def test_basic_build(pad, builder):
     (artifact,) = prog.artifacts
     # Root and its thumbnail image were updated.
     assert artifact in build_state.updated_artifacts
-    assert artifact.artifact_name == "index.html"
+    assert artifact.artifact_id == "index.html"
     assert set(artifact.sources) == set(root.iter_source_filenames())
     assert artifact.updated
     assert artifact.extra is None
@@ -195,7 +195,7 @@ def test_basic_template_rendering(pad, builder):
     with artifact.open("rb") as f:
         rv = f.read().decode("utf-8")
 
-    assert artifact.artifact_name == "index.html"
+    assert artifact.artifact_id == "index.html"
 
     assert "<title>My Website</title>" in rv
     assert "<h1>Welcome</h1>" in rv
@@ -210,7 +210,7 @@ def test_attachment_copying(pad, builder):
     prog, _ = builder.build(text_file)
     artifact = prog.artifacts[0]
 
-    assert artifact.artifact_name == "hello.txt"
+    assert artifact.artifact_id == "hello.txt"
 
     with artifact.open("rb") as f:
         rv = f.read().decode("utf-8").strip()
@@ -291,7 +291,7 @@ def test_record_is_file(pad, builder):
 
     prog, _ = builder.build(record)
     (artifact,) = prog.artifacts
-    assert artifact.artifact_name == "extra/file.ext"
+    assert artifact.artifact_id == "extra/file.ext"
 
 
 def test_slug_contains_slash(pad, builder):
@@ -299,7 +299,7 @@ def test_slug_contains_slash(pad, builder):
 
     prog, _ = builder.build(record)
     (artifact,) = prog.artifacts
-    assert artifact.artifact_name == "extra/long/path/index.html"
+    assert artifact.artifact_id == "extra/long/path/index.html"
 
 
 def test_asseturl_dependency_tracking_integration(

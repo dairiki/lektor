@@ -10,13 +10,13 @@ class BuildFailure:
         self.data = data
 
     @classmethod
-    def from_exc_info(cls, artifact_name, exc_info):
+    def from_exc_info(cls, artifact_id, exc_info):
         te = TracebackException(*exc_info)
         # NB: we have dropped werkzeug's support for Paste's __traceback_hide__
         # frame local.
         return cls(
             {
-                "artifact": artifact_name,
+                "artifact": artifact_id,
                 "exception": "".join(te.format_exception_only()).strip(),
                 "traceback": "".join(te.format()).strip(),
             }
@@ -35,17 +35,17 @@ class FailureController:
             "failures",
         )
 
-    def get_filename(self, artifact_name):
+    def get_filename(self, artifact_id):
         return (
             os.path.join(
-                self.path, hashlib.md5(artifact_name.encode("utf-8")).hexdigest()
+                self.path, hashlib.md5(artifact_id.encode("utf-8")).hexdigest()
             )
             + ".json"
         )
 
-    def lookup_failure(self, artifact_name):
+    def lookup_failure(self, artifact_id):
         """Looks up a failure for the given artifact name."""
-        fn = self.get_filename(artifact_name)
+        fn = self.get_filename(artifact_id)
         try:
             with open(fn, encoding="utf-8") as f:
                 return BuildFailure(json.load(f))
@@ -54,21 +54,21 @@ class FailureController:
                 raise
             return None
 
-    def clear_failure(self, artifact_name):
+    def clear_failure(self, artifact_id):
         """Clears a stored failure."""
         try:
-            os.unlink(self.get_filename(artifact_name))
+            os.unlink(self.get_filename(artifact_id))
         except OSError as e:
             if e.errno != errno.ENOENT:
                 raise
 
-    def store_failure(self, artifact_name, exc_info):
+    def store_failure(self, artifact_id, exc_info):
         """Stores a failure from an exception info tuple."""
-        fn = self.get_filename(artifact_name)
+        fn = self.get_filename(artifact_id)
         try:
             os.makedirs(os.path.dirname(fn))
         except OSError:
             pass
         with open(fn, mode="w", encoding="utf-8") as f:
-            json.dump(BuildFailure.from_exc_info(artifact_name, exc_info).to_json(), f)
+            json.dump(BuildFailure.from_exc_info(artifact_id, exc_info).to_json(), f)
             f.write("\n")

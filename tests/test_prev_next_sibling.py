@@ -39,7 +39,7 @@ class DependencyReporter(Reporter):
         source_id = self.current_artifact.source_obj["_id"]
         row = self.deps.setdefault(source_id, set())
         for (
-            _artifact_name,
+            _artifact_id,
             source_path,
             _mtime,
             _size,

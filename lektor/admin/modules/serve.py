@@ -51,7 +51,7 @@ class LivereloadConfig:
     def from_artifact(cls, artifact: Artifact | None) -> LivereloadConfig | None:
         if artifact is not None and "livereload" in current_app.blueprints:
             return cls(
-                artifactName=artifact.artifact_name,
+                artifactName=artifact.artifact_id,
                 eventsUrl=url_for("livereload.events"),
                 workerJs=url_for("static", filename="livereload-worker.js"),
             )
@@ -185,7 +185,7 @@ class ArtifactServer:
         artifact = prog.primary_artifact
         if artifact is None:
             abort(404)
-        failure = lektor_ctx.failure_controller.lookup_failure(artifact.artifact_name)
+        failure = lektor_ctx.failure_controller.lookup_failure(artifact.artifact_id)
         return artifact, failure
 
     @staticmethod

@@ -26,15 +26,15 @@ def test_BuildFailure_from_exc_info():
         except KeyError:
             raise RuntimeError("test error")  # pylint: disable=raise-missing-from
 
-    artifact_name = "test_artifact"
+    artifact_id = "test_artifact"
     failure = None
     try:
         throw_exception()
     except Exception:
-        failure = BuildFailure.from_exc_info(artifact_name, sys.exc_info())
+        failure = BuildFailure.from_exc_info(artifact_id, sys.exc_info())
 
     assert failure
-    assert failure.data["artifact"] == artifact_name
+    assert failure.data["artifact"] == artifact_id
     assert failure.data["exception"] == "RuntimeError: test error"
     traceback = failure.data["traceback"]
     print(traceback)
@@ -54,13 +54,13 @@ def test_failure_controller(failure_controller):
     try:
         raise RuntimeError("test exception")
     except Exception:
-        failure_controller.store_failure("artifact_name", sys.exc_info())
+        failure_controller.store_failure("artifact_id", sys.exc_info())
 
-    failure = failure_controller.lookup_failure("artifact_name")
+    failure = failure_controller.lookup_failure("artifact_id")
     assert failure.data["exception"] == "RuntimeError: test exception"
 
-    failure_controller.clear_failure("artifact_name")
-    assert failure_controller.lookup_failure("artifact_name") is None
+    failure_controller.clear_failure("artifact_id")
+    assert failure_controller.lookup_failure("artifact_id") is None
 
 
 def test_failure_controller_clear_lookup_missing(failure_controller):

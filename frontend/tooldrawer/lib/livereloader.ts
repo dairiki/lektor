@@ -6,7 +6,7 @@ export interface LivereloaderConfig {
 
 export type ReloadMessage = {
   type: "reload";
-  path: string; // artifact_name
+  path: string; // artifact_id
 };
 
 export type RestartMessage = {

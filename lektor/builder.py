@@ -135,7 +135,7 @@ class BuildState:
         a failure.
         """
         self.failed_artifacts.append(artifact)
-        self.builder.failure_controller.store_failure(artifact.artifact_name, exc_info)
+        self.builder.failure_controller.store_failure(artifact.artifact_id, exc_info)
         reporter.report_failure(artifact, exc_info)
 
     def get_file_info(self, filename):
@@ -163,6 +163,7 @@ class BuildState:
         """Returns a database connection for the build state db."""
         return self.builder.connect_to_database()
 
+    # FIXME: rename parameter to artifact_id
     def get_destination_filename(self, artifact_name):
         """Returns the destination filename for an artifact name."""
         return os.path.join(
@@ -170,7 +171,7 @@ class BuildState:
             artifact_name.strip("/").replace("/", os.path.sep),
         )
 
-    def artifact_name_from_destination_filename(self, filename):
+    def artifact_id_from_destination_filename(self, filename):
         """Returns the artifact name for a destination filename."""
         dst = self.builder.destination_path
         filename = os.path.join(dst, filename)
@@ -180,15 +181,19 @@ class BuildState:
                 filename = filename.lstrip(os.path.altsep)
         return filename.replace(os.path.sep, "/")
 
+    @deprecated("renamed to artifact_id_from_destination_filename", version="3.4.0")
+    def artifact_name_from_destination_filename(self, filename):
+        return self.artifact_id_from_destination_filename(filename)
+
     def new_artifact(
         self, artifact_name, sources=None, source_obj=None, extra=None, config_hash=None
     ):
         """Creates a new artifact and returns it."""
         dst_filename = self.get_destination_filename(artifact_name)
-        key = self.artifact_name_from_destination_filename(dst_filename)
+        artifact_id = self.artifact_id_from_destination_filename(dst_filename)
         return Artifact(
             self,
-            key,
+            artifact_id,
             dst_filename,
             sources,
             source_obj=source_obj,
@@ -196,11 +201,13 @@ class BuildState:
             config_hash=config_hash,
         )
 
+    # FIXME: rename parameter to artifact_id
     def artifact_exists(self, artifact_name):
         """Given an artifact name this checks if it was already produced."""
         dst_filename = self.get_destination_filename(artifact_name)
         return os.path.exists(dst_filename)
 
+    # FIXME: rename parameter to artifact_id
     def get_artifact_dependency_infos(self, artifact_name, sources):
         con = self.connect_to_database()
         try:
@@ -210,7 +217,8 @@ class BuildState:
             con.close()
         return rv
 
-    def _iter_artifact_dependency_infos(self, cur, artifact_name, sources):
+    # FIXME: rename parameter to artifact_id
+    def _iter_artifact_dependency_infos(self, cur, artifact_id, sources):
         """This iterates over all dependencies as file info objects."""
         cur.execute(
             """
@@ -219,7 +227,7 @@ class BuildState:
             from artifacts
             where artifact = ?
         """,
-            [artifact_name],
+            [artifact_id],
         )
         rv = cur.fetchall()
 
@@ -302,8 +310,10 @@ class BuildState:
         for source in to_clean:
             reporter.report_prune_source_info(source)
 
+    # FIXME: rename parameter to artifact_id
     def remove_artifact(self, artifact_name):
         """Removes an artifact from the build state."""
+        artifact_id = artifact_name
         con = self.connect_to_database()
         try:
             cur = con.cursor()
@@ -311,7 +321,7 @@ class BuildState:
                 """
                 delete from artifacts where artifact = ?
             """,
-                [artifact_name],
+                [artifact_id],
             )
             con.commit()
         finally:
@@ -335,18 +345,19 @@ class BuildState:
         return cur.fetchone() is not None
 
     @staticmethod
-    def _get_artifact_config_hash(cur, artifact_name):
+    def _get_artifact_config_hash(cur, artifact_id):
         """Returns the artifact's config hash."""
         cur.execute(
             """
             select config_hash from artifact_config_hashes
              where artifact = ?
         """,
-            [artifact_name],
+            [artifact_id],
         )
         rv = cur.fetchone()
         return rv[0] if rv else None
 
+    # FIXME: rename parameter to artifact_id
     def check_artifact_is_current(self, artifact_name, sources, config_hash):
         con = self.connect_to_database()
         cur = con.cursor()
@@ -380,7 +391,7 @@ class BuildState:
     def iter_existing_artifacts(self):
         """Scan output directory for artifacts.
 
-        Returns an iterable of the artifact_names for artifacts found.
+        Returns an iterable of the artifact_ids for artifacts found.
         """
         is_ignored = self.env.is_ignored_artifact
 
@@ -392,7 +403,7 @@ class BuildState:
             dirnames[:] = _unignored(dirnames)
             for filename in _unignored(filenames):
                 full_path = os.path.join(dst, dirpath, filename)
-                yield self.artifact_name_from_destination_filename(full_path)
+                yield self.artifact_id_from_destination_filename(full_path)
 
     def iter_unreferenced_artifacts(self, all=False):
         """Finds all unreferenced artifacts in the build folder and yields
@@ -404,7 +415,7 @@ class BuildState:
         con = self.connect_to_database()
         cur = con.cursor()
 
-        def _is_unreferenced(artifact_name):
+        def _is_unreferenced(artifact_id):
             # Check whether any of the primary sources for the artifact
             # exist and — if the source can be resolved to a record —
             # correspond to non-hidden records.
@@ -414,7 +425,7 @@ class BuildState:
                 FROM artifacts LEFT JOIN source_info USING(source)
                 WHERE artifact = ?
                     AND is_primary_source""",
-                [artifact_name],
+                [artifact_id],
             )
             for source, path, alt in cur.fetchall():
                 if self.get_file_info(source).exists:
@@ -446,11 +457,11 @@ class BuildState:
             )
             rows = cur.fetchall()
             con.close()
-            for (artifact_name,) in rows:
-                path = self.get_destination_filename(artifact_name)
+            for (artifact_id,) in rows:
+                path = self.get_destination_filename(artifact_id)
                 info = FileInfo(self.builder.env, path)
                 if info.exists:
-                    yield artifact_name, info
+                    yield artifact_id, info
         finally:
             con.close()
 
@@ -688,7 +699,7 @@ class Artifact:
     def __init__(
         self,
         build_state,
-        artifact_name,
+        artifact_id,
         dst_filename,
         sources,
         source_obj=None,
@@ -696,7 +707,7 @@ class Artifact:
         config_hash=None,
     ):
         self.build_state = build_state
-        self.artifact_name = artifact_name
+        self.artifact_id = artifact_id
         self.dst_filename = dst_filename
         self.sources = sources
         self.in_update_block = False
@@ -712,6 +723,11 @@ class Artifact:
         return f"<{self.__class__.__name__} {self.dst_filename!r}>"
 
     @property
+    @deprecated("renamed to artifact_id", version="3.4.0")
+    def artifact_name(self) -> ArtifactId:
+        return self.artifact_id
+
+    @property
     def is_current(self):
         """Checks if the artifact is current."""
         # If the artifact does not exist, we're not current.
@@ -719,12 +735,12 @@ class Artifact:
             return False
 
         return self.build_state.check_artifact_is_current(
-            self.artifact_name, self.sources, self.config_hash
+            self.artifact_id, self.sources, self.config_hash
         )
 
     def get_dependency_infos(self):
         return self.build_state.get_artifact_dependency_infos(
-            self.artifact_name, self.sources
+            self.artifact_id, self.sources
         )
 
     def ensure_dir(self):
@@ -803,7 +819,7 @@ class Artifact:
                 info = self.build_state.get_file_info(source_id)
                 rows.append(
                     artifacts_row(
-                        artifact=self.artifact_name,
+                        artifact=self.artifact_id,
                         source=source_id,
                         source_mtime=info.mtime,
                         source_size=info.size,
@@ -820,7 +836,7 @@ class Artifact:
                 mtime = v_source.get_mtime(self.build_state.path_cache)
                 rows.append(
                     artifacts_row(
-                        artifact=self.artifact_name,
+                        artifact=self.artifact_id,
                         source=_pack_virtual_source_path(v_source.path, v_source.alt),
                         source_mtime=mtime,
                         source_size=None,
@@ -835,7 +851,7 @@ class Artifact:
             cur = con.cursor()
             if not for_failure:
                 cur.execute(
-                    "delete from artifacts where artifact = ?", [self.artifact_name]
+                    "delete from artifacts where artifact = ?", [self.artifact_id]
                 )
             if rows:
                 cur.executemany(
@@ -854,7 +870,7 @@ class Artifact:
                     delete from artifact_config_hashes
                      where artifact = ?
                 """,
-                    [self.artifact_name],
+                    [self.artifact_id],
                 )
             else:
                 cur.execute(
@@ -862,7 +878,7 @@ class Artifact:
                     insert or replace into artifact_config_hashes
                            (artifact, config_hash) values (?, ?)
                 """,
-                    [self.artifact_name, self.config_hash],
+                    [self.artifact_id, self.config_hash],
                 )
 
             cur.close()
@@ -984,9 +1000,7 @@ class Artifact:
                 con = None
 
             self.build_state.updated_artifacts.append(self)
-            self.build_state.builder.failure_controller.clear_failure(
-                self.artifact_name
-            )
+            self.build_state.builder.failure_controller.clear_failure(self.artifact_id)
         finally:
             if con is not None:
                 con.rollback()

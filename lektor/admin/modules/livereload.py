@@ -32,4 +32,4 @@ def events() -> Generator[dict[str, str], None, None]:
                 artifact = updated_artifacts.get(timeout=PING_DELAY)
             except queue.Empty:
                 continue
-            yield {"type": "reload", "path": artifact.artifact_name}
+            yield {"type": "reload", "path": artifact.artifact_id}
