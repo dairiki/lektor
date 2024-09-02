@@ -165,6 +165,9 @@ disable = [
     "duplicate-code",
     "unnecessary-dunder-call",
 ]
+enable = [
+    "useless-suppression",  # warn about unused disables
+]
 
 [tool.mypy]
 files = ["$MYPY_CONFIG_FILE_DIR/lektor"]
