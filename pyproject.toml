@@ -61,6 +61,28 @@ optional-dependencies.ipython = [
 [project.scripts]
 lektor = "lektor.cli:main"
 
+[tool.pdm]
+distribution = true
+
+[tool.pdm.dev-dependencies]
+tests = [
+    "pytest>=6",
+    "pytest-click>=1.1.0",
+    "pytest-mock>=3.14.0",
+    "coverage[toml]>=7.6.1",
+    "importlib-metadata>=8.5.0; python_version < \"3.10\"",
+    "iniconfig>=2.0.0",
+    "hatchling>=1.25.0",
+]
+
+[tool.pdm.scripts]
+tests = "pytest -ra tests"
+cover.composite = [
+    "coverage run -m pytest tests -ra",
+    "coverage report",
+    "coverage html",
+]
+
 [tool.hatch.version]
 source = "vcs"
 
