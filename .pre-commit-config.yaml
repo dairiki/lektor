@@ -27,6 +27,10 @@ repos:
     rev: "2.18.2"
     hooks:
       - id: pdm-lock-check
+      - id: pdm-lock-check
+        args: ["--lockfile", "requirements/tests.lock"]
+      - id: pdm-lock-check
+        args: ["--lockfile", "requirements/old-deps.lock"]
   - repo: local
     hooks:
       - id: eslint

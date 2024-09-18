@@ -34,28 +34,30 @@ classifiers = [
 
 requires-python = ">=3.8.1"
 dependencies = [
-    "Babel",
+    "Babel>=2.12",
     "click>=6.0",
-    "Flask",
+    "Flask>=2.1",
     "inifile>=0.4.1",
     "Jinja2>=3.0",
-    "MarkupSafe",
-    "marshmallow",
-    "marshmallow_dataclass>=8.5.9",
-    "mistune>=0.7.0,<3",
-    "Pillow>=6",
-    "pip",
-    "python-slugify",
-    "pytz; python_version<'3.9'",  # favor zoneinfo for python>=3.9
-    "requests",
-    "typing-extensions>=3.10; python_version<'3.10'",
+    "MarkupSafe>=2.0",
+    "marshmallow>=3.15",
+    "marshmallow_dataclass>=8.7.1",
+    "mistune>=0.8.0,<3",
+    "Pillow>=6.2.1",
+    "Pillow>=8.3.2; python_version>='3.10'",
+    "pip>=19.3",
+    "pip>=22.2; python_version>='3.12'",
+    "python-slugify>=7.0.0",
+    "pytz>=2020.1; python_version<'3.9'",  # favor zoneinfo for python>=3.9
+    "requests>=2.28.0",
+    "typing-extensions>=4.7; python_version<'3.10'",
     "tzdata; python_version>='3.9' and sys_platform == 'win32'",
     "watchfiles>=0.12",
     "Werkzeug>=2.1.0",
 ]
 optional-dependencies.ipython = [
-    "ipython",
-    "traitlets",
+    "ipython>=6.0",
+    "traitlets>=4.3",
 ]
 
 [project.scripts]
@@ -66,7 +68,7 @@ distribution = true
 
 [tool.pdm.dev-dependencies]
 tests = [
-    "pytest>=6",
+    "pytest>=7",
     "pytest-click>=1.1.0",
     "pytest-mock>=3.14.0",
     "coverage[toml]>=7.6.1",
@@ -78,6 +80,9 @@ dev = [
     "flake8==6.1.0",
     "flake8-bugbear==23.7.10",
 ]
+pylint = [
+    "pylint==3.2.7",
+]
 
 [tool.pdm.scripts]
 tests = "pytest -ra tests"
@@ -86,6 +91,8 @@ cover.composite = [
     "coverage report",
     "coverage html",
 ]
+
+lint = "pylint lektor tests"
 
 [tool.hatch.version]
 source = "vcs"
