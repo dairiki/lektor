@@ -145,7 +145,6 @@ omit = [
     # into a pytest temporary directory
     "*/pytest-*/*",
 ]
-parallel = true
 
 [tool.coverage.paths]
 paths = [
