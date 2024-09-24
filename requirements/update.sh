@@ -30,5 +30,5 @@ update_lockfile () {
 }
 
 
-update_lockfile "${here}/tests.lock" -G tests
-update_lockfile "${here}/old-deps.lock" -G tests -S direct_minimal_versions
+update_lockfile "${here}/tests.lock" -G tests,binary-pillow
+update_lockfile "${here}/old-deps.lock" -G tests,binary-pillow -S direct_minimal_versions

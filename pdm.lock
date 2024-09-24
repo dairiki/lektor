@@ -5,7 +5,7 @@
 groups = ["default", "dev", "pylint", "tests"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:98ed1214f26cdb3bd46e2ad29b0672db207d89cea8830401c65d3ca34689d5c5"
+content_hash = "sha256:11df18246b0de9658f517dd4bbecb1a689c239950ae397db3d71055b0ba3bca9"
 
 [[metadata.targets]]
 requires_python = ">=3.8.1"

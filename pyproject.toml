@@ -44,7 +44,10 @@ dependencies = [
     "marshmallow_dataclass>=8.7.1",
     "mistune>=0.8.0,<3",
     "Pillow>=6.2.1",
-    "Pillow>=8.3.2; python_version>='3.10'",
+    #"Pillow>=8.0.0; python_version>='3.9'",
+    #"Pillow>=8.3.2; python_version>='3.10'",
+    #"Pillow>=9.2.0; python_version>='3.11' and sys_platform == 'win32'",
+    #"Pillow>=9.5.0; python_version>='3.12' and sys_platform == 'win32'",
     "pip>=19.3",
     "pip>=22.2; python_version>='3.12'",
     "python-slugify>=7.0.0",
@@ -58,6 +61,13 @@ dependencies = [
 optional-dependencies.ipython = [
     "ipython>=6.0",
     "traitlets>=4.3",
+]
+optional-dependencies.binary-pillow = [
+    # Attempt to require pillow versions for which binary wheels are available
+    "Pillow>=8.0.0; python_version>='3.9'",
+    "Pillow>=8.3.2; python_version>='3.10'",
+    "Pillow>=9.2.0; python_version>='3.11'",
+    "Pillow>=9.5.0; python_version>='3.12'",
 ]
 
 [project.scripts]
