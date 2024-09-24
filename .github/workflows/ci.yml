@@ -6,6 +6,9 @@ on:
     branches:
       - master
       - "*-maintenance"
+      - "feat.*"
+      - "fix.*"
+      - "refactor.*"
     tags:
       - "v*"
   pull_request:
