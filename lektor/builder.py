@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import chain
 from typing import Any
+from typing import Final
 from typing import IO
 
 import click
@@ -29,75 +30,74 @@ from lektor.utils import process_extra_flags
 from lektor.utils import prune_file_and_folder
 
 
+# Increment this each time the sqlite db schema changes to force
+# recreation of the sqlite database.
+BUILDSTATE_SCHEMA_VERSION: Final = 1
+
+
 def create_tables(con):
+    """Create tables in database.
+
+    This function now assumes that it is operating on an newly-created empty database.
+    """
     can_disable_rowid = (3, 8, 2) <= sqlite3.sqlite_version_info
     if can_disable_rowid:
         without_rowid = "without rowid"
     else:
         without_rowid = ""
 
-    try:
-        is_virtual_exists = con.execute(
-            """ select count(*) from pragma_table_info('artifacts')
-                        where name='is_virtual';
-            """
-        ).fetchone()[0]
-        if not is_virtual_exists:
-            con.execute("""drop table if exists artifacts""")
-        con.execute(
-            f"""
-            create table if not exists artifacts (
-                artifact text,
-                source text,
-                source_mtime integer,
-                source_size integer,
-                source_checksum text,
-                is_dir integer,
-                is_virtual integer,
-                is_primary_source integer,
-                primary key (artifact, source)
-            ) {without_rowid};
+    con.execute(
+        f"""
+        create table artifacts (
+            artifact text,
+            source text,
+            source_mtime integer,
+            source_size integer,
+            source_checksum text,
+            is_dir integer,
+            is_virtual integer,
+            is_primary_source integer,
+            primary key (artifact, source)
+        ) {without_rowid};
+    """
+    )
+    con.execute(
         """
-        )
-        con.execute(
-            """
-            create index if not exists artifacts_source on artifacts (
-                source
-            );
-        """
-        )
-        con.execute(
-            f"""
-            create table if not exists artifact_config_hashes (
-                artifact text,
-                config_hash text,
-                primary key (artifact)
-            ) {without_rowid};
-        """
-        )
-        con.execute(
-            f"""
-            create table if not exists dirty_sources (
-                source text,
-                primary key (source)
-            ) {without_rowid};
-        """
-        )
-        con.execute(
-            f"""
-            create table if not exists source_info (
-                path text,
-                alt text,
-                lang text,
-                type text,
-                source text,
-                title text,
-                primary key (path, alt, lang)
-            ) {without_rowid};
-        """
-        )
-    finally:
-        con.close()
+        create index artifacts_source on artifacts (
+            source
+        );
+    """
+    )
+    con.execute(
+        f"""
+        create table artifact_config_hashes (
+            artifact text,
+            config_hash text,
+            primary key (artifact)
+        ) {without_rowid};
+    """
+    )
+    con.execute(
+        f"""
+        create table dirty_sources (
+            source text,
+            primary key (source)
+        ) {without_rowid};
+    """
+    )
+    con.execute(
+        f"""
+        create table source_info (
+            path text,
+            alt text,
+            lang text,
+            type text,
+            source text,
+            title text,
+            primary key (path, alt, lang)
+        ) {without_rowid};
+    """
+    )
 
 
 def _placeholders(values: Sized) -> str:
@@ -1114,12 +1114,6 @@ class Builder:
         except OSError:
             pass
 
-        con = self.connect_to_database()
-        try:
-            create_tables(con)
-        finally:
-            con.close()
-
     @property
     def env(self):
         """The environment backing this generator."""
@@ -1131,17 +1125,33 @@ class Builder:
         return os.path.join(self.meta_path, "buildstate")
 
     def connect_to_database(self):
+        """Connect to buildstate database.
+
+        If the db schema is not current, the database will be recreated from scratch.
+
+        """
         con = sqlite3.connect(
             self.buildstate_database_filename,
             isolation_level=None,
             timeout=10,
             check_same_thread=False,
         )
-        cur = con.cursor()
-        cur.execute("pragma journal_mode=WAL")
-        cur.execute("pragma synchronous=NORMAL")
-        con.commit()
-        cur.close()
+        with con:
+            cur = con.cursor()
+            cur.execute("pragma journal_mode=WAL")
+            cur.execute("pragma synchronous=NORMAL")
+
+            (version,) = cur.execute("pragma user_version").fetchone()
+            if version != BUILDSTATE_SCHEMA_VERSION:
+                # blow away existing database and recreate from scratch
+                cur.execute("select name from sqlite_master where type='table'")
+                table_names = [row[0] for row in cur]
+                for name in table_names:
+                    cur.execute(f'drop table "{name}"')
+
+                create_tables(con)
+                con.execute(f"pragma user_version={BUILDSTATE_SCHEMA_VERSION:d}")
+
         return con
 
     def touch_site_config(self):

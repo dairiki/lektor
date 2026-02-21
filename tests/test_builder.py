@@ -1,8 +1,10 @@
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
 from lektor.builder import Builder
+from lektor.builder import BUILDSTATE_SCHEMA_VERSION
 from lektor.builder import FileInfo
 from lektor.project import Project
 from lektor.reporter import NullReporter
@@ -472,3 +474,23 @@ def test_filenames_with_AT_do_not_get_built_twice(
 
     with AssertBuildsNothingReporter():
         scratch_builder.build_all()
+
+
+def test_Builder_connect_to_database_handles_schema_change(builder):
+    def table_exists(con, table_name):
+        cur = con.execute(
+            "select count(1) from sqlite_master where name=? and type='table'",
+            [table_name],
+        )
+        return cur.fetchone()[0] > 0
+
+    with closing(builder.connect_to_database()) as con:
+        with con:
+            con.execute("create table sentinel (col int)")
+            con.execute("pragma user_version=-1")
+        assert table_exists(con, "sentinel")
+
+    with closing(builder.connect_to_database()) as con:
+        user_version = con.execute("pragma user_version").fetchone()[0]
+        assert user_version == BUILDSTATE_SCHEMA_VERSION
+        assert not table_exists(con, "sentinel")
