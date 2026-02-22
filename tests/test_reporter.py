@@ -10,7 +10,8 @@ from lektor.reporter import describe_build_func
 @pytest.fixture
 def build_state(pad, tmp_path):
     builder = Builder(pad, destination_path=tmp_path)
-    return builder.new_build_state()
+    with builder.open_build_state() as build_state:
+        yield build_state
 
 
 def dummy_build_func(*args):

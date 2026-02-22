@@ -129,9 +129,9 @@ def test_url_to_page_with_explicit_alt(pad, alt, expected):
 
 @pytest.fixture
 def build_context(builder):
-    build_state = builder.new_build_state()
-    with Context(build_state.new_artifact("dummy-artifact")) as ctx:
-        yield ctx
+    with builder.open_build_state() as build_state:
+        with Context(build_state.new_artifact("dummy-artifact")) as ctx:
+            yield ctx
 
 
 @pytest.mark.usefixtures("build_context")

@@ -275,9 +275,9 @@ def dummy_jpg_path(tmp_path_factory):
 
 @pytest.fixture
 def ctx(builder):
-    build_state = builder.new_build_state()
-    with Context(build_state.new_artifact("dummy-artifact")) as ctx:
-        yield ctx
+    with builder.open_build_state() as build_state:
+        with Context(build_state.new_artifact("dummy-artifact")) as ctx:
+            yield ctx
 
 
 @pytest.mark.parametrize(

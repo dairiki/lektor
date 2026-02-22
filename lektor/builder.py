@@ -6,13 +6,16 @@ import shutil
 import sqlite3
 import stat
 import sys
+import weakref
 from collections import deque
 from collections import namedtuple
+from collections.abc import Iterator
 from collections.abc import Sized
-from contextlib import AbstractContextManager
 from contextlib import closing
 from contextlib import contextmanager
+from contextlib import ExitStack
 from dataclasses import dataclass
+from dataclasses import field
 from itertools import chain
 from typing import Any
 from typing import Final
@@ -27,6 +30,7 @@ from lektor.context import Context
 from lektor.reporter import reporter
 from lektor.sourcesearch import find_files
 from lektor.utils import create_temp
+from lektor.utils import deprecated
 from lektor.utils import fs_enc
 from lektor.utils import process_extra_flags
 from lektor.utils import prune_file_and_folder
@@ -101,28 +105,13 @@ def _placeholders(values: Sized) -> str:
     return ",".join(["?"] * len(values))
 
 
-class BuildState(AbstractContextManager):
-    dbcon: sqlite3.Connection | None
-
-    def __init__(self, builder, path_cache):
-        self.builder = builder
-
-        self.updated_artifacts = []
-        self.failed_artifacts = []
-        self.path_cache = path_cache
-        self.dbcon = builder.connect_to_database()
-
-    def __exit__(self, *_exc_info) -> None:
-        self.close()
-
-    def close(self) -> None:
-        if dbcon := self.dbcon:
-            dbcon.close()
-        self.dbcon = None
-
-    @property
-    def _is_closed(self) -> bool:
-        return self.dbcon is None
+@dataclass
+class BuildState:
+    builder: Builder
+    path_cache: PathCache
+    db_conn: sqlite3.Connection
+    updated_artifacts: list[Artifact] = field(default_factory=list, init=False)
+    failed_artifacts: list[Artifact] = field(default_factory=list, init=False)
 
     @property
     def pad(self):
@@ -208,7 +197,7 @@ class BuildState(AbstractContextManager):
 
     def _iter_artifact_dependency_infos(self, artifact_name, sources):
         """This iterates over all dependencies as file info objects."""
-        cur = self.dbcon.execute(
+        cur = self.db_conn.execute(
             """
             SELECT
                 source, source_mtime, source_size, source_checksum, is_dir, is_virtual
@@ -245,7 +234,7 @@ class BuildState(AbstractContextManager):
         """
         reporter.report_write_source_info(info)
         source = self.to_source_filename(info.filename)
-        with self.dbcon as con:
+        with self.db_conn as con:
             con.executemany(
                 """
                 INSERT OR REPLACE INTO
@@ -263,7 +252,7 @@ class BuildState(AbstractContextManager):
         """Remove all source infos of files that no longer exist."""
         MAX_VARS = 999  # Default SQLITE_MAX_VARIABLE_NUMBER.
         to_clean = []
-        with self.dbcon as con:
+        with self.db_conn as con:
             cur = con.execute("SELECT DISTINCT source FROM source_info")
             for (source,) in cur:
                 fs_path = os.path.join(self.env.root_path, source)
@@ -286,7 +275,7 @@ class BuildState(AbstractContextManager):
 
     def remove_artifact(self, artifact_name):
         """Removes an artifact from the build state."""
-        with self.dbcon as con:
+        with self.db_conn as con:
             con.execute(
                 "DELETE FROM artifacts WHERE artifact = ?",
                 [artifact_name],
@@ -300,7 +289,7 @@ class BuildState(AbstractContextManager):
         if not sources:
             return False
 
-        cur = self.dbcon.execute(
+        cur = self.db_conn.execute(
             f"""
             SELECT source
             FROM dirty_sources
@@ -313,7 +302,7 @@ class BuildState(AbstractContextManager):
 
     def _get_artifact_config_hash(self, artifact_name):
         """Returns the artifact's config hash."""
-        cur = self.dbcon.execute(
+        cur = self.db_conn.execute(
             """
             SELECT config_hash
             FROM artifact_config_hashes
@@ -373,7 +362,7 @@ class BuildState(AbstractContextManager):
         if all:
             yield from self.iter_existing_artifacts()
 
-        cur = self.dbcon.cursor()
+        cur = self.db_conn.cursor()
 
         def _is_unreferenced(artifact_name):
             # Check whether any of the primary sources for the artifact
@@ -409,7 +398,7 @@ class BuildState(AbstractContextManager):
 
     def iter_artifacts(self):
         """Iterates over all artifact and their file infos.."""
-        cur = self.dbcon.execute(
+        cur = self.db_conn.execute(
             "SELECT DISTINCT artifact FROM artifacts ORDER BY artifact"
         )
         for (artifact_name,) in cur:
@@ -420,7 +409,7 @@ class BuildState(AbstractContextManager):
 
     def vacuum(self):
         """Vacuums the build db."""
-        self.dbcon.execute("VACUUM")
+        self.db_conn.execute("VACUUM")
 
 
 def _describe_fs_path_for_checksum(path):
@@ -639,6 +628,7 @@ artifacts_row = namedtuple(
 )
 
 
+# FIXME: convert to dataclass?
 class Artifact:
     """This class represents a build artifact."""
 
@@ -669,11 +659,6 @@ class Artifact:
     def __repr__(self):
         return f"<{self.__class__.__name__} {self.dst_filename!r}>"
 
-    def _safe_build_state(self) -> BuildState:
-        if self.build_state._is_closed:
-            raise RuntimeError("This operation requires an active build_state")
-        return self.build_state
-
     @property
     def is_current(self):
         """Checks if the artifact is current."""
@@ -681,7 +666,7 @@ class Artifact:
         if not os.path.isfile(self.dst_filename):
             return False
 
-        return self._safe_build_state().check_artifact_is_current(
+        return self.build_state.check_artifact_is_current(
             self.artifact_name, self.sources, self.config_hash
         )
 
@@ -738,9 +723,8 @@ class Artifact:
 
     def render_template_into(self, template_name, this, **extra):
         """Renders a template into the artifact."""
-        build_state = self._safe_build_state()
-        rv = build_state.env.render_template(
-            template_name, build_state.pad, this=this, **extra
+        rv = self.build_state.env.render_template(
+            template_name, self.build_state.pad, this=this, **extra
         )
         with self.open("wb") as f:
             f.write(rv.encode("utf-8") + b"\n")
@@ -840,7 +824,7 @@ class Artifact:
             cur.close()
 
         if for_failure:
-            with self.build_state.dbcon as con:
+            with self.build_state.db_conn as con:
                 operation(con)
         else:
             self._auto_deferred_update_operation(operation)
@@ -897,7 +881,7 @@ class Artifact:
         if self.in_update_block:
             self._pending_update_ops.append(f)
         else:
-            with self.build_state.dbcon as con:
+            with self.build_state.db_conn as con:
                 f(con)
 
     @contextmanager
@@ -928,7 +912,7 @@ class Artifact:
         return ctx
 
     def _commit(self):
-        with self.build_state.dbcon as con:
+        with self.build_state.db_conn as con:
             for op in self._pending_update_ops:
                 op(con)
 
@@ -1083,9 +1067,12 @@ class Builder:
         """
         con = sqlite3.connect(
             self.buildstate_database_filename,
+            # FIXME: this seems highly suspect.  We are being careful about
+            # commits and rollbacks, but I think this pretty much means transactions
+            # are disabled.
             isolation_level=None,
             timeout=10,
-            check_same_thread=False,
+            check_same_thread=False,  # FIXME: enable?
         )
         with con:
             cur = con.cursor()
@@ -1121,11 +1108,24 @@ class Builder:
         """
         return find_files(self, query, alt, lang, limit, types)
 
-    def new_build_state(self, path_cache=None):
+    @deprecated("Use Builder.open_build_state", version="3.4.0")
+    def new_build_state(self, path_cache: PathCache | None = None) -> BuildState:
+        stack = ExitStack()
+        build_state = stack.enter_context(self.open_build_state(path_cache))
+        weakref.finalize(build_state, stack.close)
+        return build_state
+
+    @contextmanager
+    def open_build_state(
+        self, path_cache: PathCache | None = None
+    ) -> Iterator[BuildState]:
         """Creates a new build state."""
         if path_cache is None:
             path_cache = PathCache(self.env)
-        return BuildState(self, path_cache)
+
+        # FIXME: should cache connections --- one per thread
+        with closing(self.connect_to_database()) as db_conn:
+            yield BuildState(self, path_cache, db_conn)
 
     def get_build_program(self, source, build_state):
         """Finds the right build function for the given source file."""
@@ -1175,7 +1175,7 @@ class Builder:
         path_cache = PathCache(self.env)
         with (
             reporter.build(all and "clean" or "prune", self),
-            self.new_build_state(path_cache=path_cache) as build_state,
+            self.open_build_state(path_cache=path_cache) as build_state,
         ):
             self.env.plugin_controller.emit("before-prune", builder=self, all=all)
 
@@ -1194,7 +1194,7 @@ class Builder:
         """Given a source object, builds it."""
         with (
             reporter.process_source(source),
-            self.new_build_state(path_cache=path_cache) as build_state,
+            self.open_build_state(path_cache=path_cache) as build_state,
         ):
             prog = self.get_build_program(source, build_state)
             self.env.plugin_controller.emit(
@@ -1255,7 +1255,7 @@ class Builder:
         """
         with (
             reporter.build("source info update", self),
-            self.new_build_state() as build_state,
+            self.open_build_state() as build_state,
         ):
             to_build = self.get_initial_build_queue()
             while to_build:

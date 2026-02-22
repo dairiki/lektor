@@ -412,21 +412,23 @@ def test_BuildState_to_source_filename(param, data_path, tmp_path):
     else:
         tree = demo_project
     env = Project.from_path(tree).make_env(load_plugins=False)
-    build_state = Builder(env.new_pad(), tmp_path / "output").new_build_state()
-
-    assert build_state.to_source_filename(str(demo_project / "filename")) == "filename"
+    builder = Builder(env.new_pad(), tmp_path / "output")
+    with builder.open_build_state() as build_state:
+        assert (
+            build_state.to_source_filename(str(demo_project / "filename")) == "filename"
+        )
 
 
 ################################################################
 
 
 def test_Artifact_open_encoding(builder):
-    build_state = builder.new_build_state()
-    artifact = build_state.new_artifact("dummy-artifact", sources=())
-    with artifact.open("w", encoding="iso-8859-1") as fp:
-        fp.write("Ciarán")
-    with artifact.open("r", encoding="iso-8859-1") as fp:
-        assert fp.read() == "Ciarán"
+    with builder.open_build_state() as build_state:
+        artifact = build_state.new_artifact("dummy-artifact", sources=())
+        with artifact.open("w", encoding="iso-8859-1") as fp:
+            fp.write("Ciarán")
+        with artifact.open("r", encoding="iso-8859-1") as fp:
+            assert fp.read() == "Ciarán"
 
 
 def test_Artifact_file_mode(builder, tmp_path):
@@ -435,10 +437,10 @@ def test_Artifact_file_mode(builder, tmp_path):
     new_file.touch()
     new_file_mode = new_file.stat().st_mode
 
-    build_state = builder.new_build_state()
-    artifact = build_state.new_artifact("dummy-artifact", sources=())
-    with artifact.update(), artifact.open("w"):
-        pass
+    with builder.open_build_state() as build_state:
+        artifact = build_state.new_artifact("dummy-artifact", sources=())
+        with artifact.update(), artifact.open("w"):
+            pass
     artifact_mode = Path(artifact.dst_filename).stat().st_mode
 
     # applying oct makes failures more readable
