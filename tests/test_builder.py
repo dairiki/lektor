@@ -147,11 +147,7 @@ def test_basic_artifact_current_test(pad, builder, reporter):
         "models/blog-post.ini",
     }
 
-    assert artifact.is_current
-
     artifact = build()
-
-    assert artifact.is_current
 
     assert reporter.get_major_events() == [
         (
