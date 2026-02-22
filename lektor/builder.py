@@ -42,61 +42,55 @@ def create_tables(con):
     """
     can_disable_rowid = (3, 8, 2) <= sqlite3.sqlite_version_info
     if can_disable_rowid:
-        without_rowid = "without rowid"
+        without_rowid = "WITHOUT ROWID"
     else:
         without_rowid = ""
 
     con.execute(
         f"""
-        create table artifacts (
-            artifact text,
-            source text,
-            source_mtime integer,
-            source_size integer,
-            source_checksum text,
-            is_dir integer,
-            is_virtual integer,
-            is_primary_source integer,
-            primary key (artifact, source)
-        ) {without_rowid};
-    """
-    )
-    con.execute(
+        CREATE TABLE artifacts (
+            artifact TEXT,
+            source TEXT,
+            source_mtime INTEGER,
+            source_size INTEGER,
+            source_checksum TEXT,
+            is_dir INTEGER,
+            is_virtual INTEGER,
+            is_primary_source INTEGER,
+            PRIMARY KEY (artifact, source)
+        ) {without_rowid}
         """
-        create index artifacts_source on artifacts (
-            source
-        );
-    """
+    )
+    con.execute("CREATE INDEX artifacts_source ON artifacts (source)")
+    con.execute(
+        f"""
+        CREATE TABLE artifact_config_hashes (
+            artifact TEXT,
+            config_hash TEXT,
+            PRIMARY KEY (artifact)
+        ) {without_rowid}
+        """
     )
     con.execute(
         f"""
-        create table artifact_config_hashes (
-            artifact text,
-            config_hash text,
-            primary key (artifact)
-        ) {without_rowid};
-    """
+        CREATE TABLE dirty_sources (
+            source TEXT,
+            PRIMARY KEY (source)
+        ) {without_rowid}
+        """
     )
     con.execute(
         f"""
-        create table dirty_sources (
-            source text,
-            primary key (source)
-        ) {without_rowid};
-    """
-    )
-    con.execute(
-        f"""
-        create table source_info (
-            path text,
-            alt text,
-            lang text,
-            type text,
-            source text,
-            title text,
-            primary key (path, alt, lang)
-        ) {without_rowid};
-    """
+        CREATE TABLE source_info (
+            path TEXT,
+            alt TEXT,
+            lang TEXT,
+            type TEXT,
+            source TEXT,
+            title TEXT,
+            PRIMARY KEY (path, alt, lang)
+        ) {without_rowid}
+        """
     )
 
 
@@ -208,11 +202,11 @@ class BuildState:
         """This iterates over all dependencies as file info objects."""
         cur.execute(
             """
-            select source, source_mtime, source_size,
-                   source_checksum, is_dir, is_virtual
-            from artifacts
-            where artifact = ?
-        """,
+            SELECT
+                source, source_mtime, source_size, source_checksum, is_dir, is_virtual
+            FROM artifacts
+            WHERE artifact = ?
+            """,
             [artifact_name],
         )
         rv = cur.fetchall()
@@ -251,10 +245,11 @@ class BuildState:
             for lang, title in info.title_i18n.items():
                 cur.execute(
                     """
-                    insert or replace into source_info
-                        (path, alt, lang, type, source, title)
-                        values (?, ?, ?, ?, ?, ?)
-                """,
+                    INSERT OR REPLACE INTO
+                        source_info (path, alt, lang, type, source, title)
+                    VALUES
+                        (?, ?, ?, ?, ?, ?)
+                    """,
                     [info.path, info.alt, lang, info.type, source, title],
                 )
             con.commit()
@@ -268,11 +263,7 @@ class BuildState:
         to_clean = []
         try:
             cur = con.cursor()
-            cur.execute(
-                """
-                select distinct source from source_info
-            """
-            )
+            cur.execute("SELECT DISTINCT source FROM source_info")
             for (source,) in cur.fetchall():
                 fs_path = os.path.join(self.env.root_path, source)
                 if not os.path.exists(fs_path):
@@ -283,8 +274,8 @@ class BuildState:
                     chunk = to_clean[i : i + MAX_VARS]
                     cur.execute(
                         f"""
-                        delete from source_info
-                         where source in ({_placeholders(chunk)})
+                        DELETE FROM source_info
+                        WHERE source IN ({_placeholders(chunk)})
                         """,
                         chunk,
                     )
@@ -302,9 +293,7 @@ class BuildState:
         try:
             cur = con.cursor()
             cur.execute(
-                """
-                delete from artifacts where artifact = ?
-            """,
+                "DELETE FROM artifacts WHERE artifact = ?",
                 [artifact_name],
             )
             con.commit()
@@ -321,9 +310,10 @@ class BuildState:
 
         cur.execute(
             f"""
-            select source from dirty_sources
-            where source in ({_placeholders(sources)})
-            limit 1
+            SELECT source
+            FROM dirty_sources
+            WHERE source in ({_placeholders(sources)})
+            LIMIT 1
             """,
             sources,
         )
@@ -334,9 +324,10 @@ class BuildState:
         """Returns the artifact's config hash."""
         cur.execute(
             """
-            select config_hash from artifact_config_hashes
-             where artifact = ?
-        """,
+            SELECT config_hash
+            FROM artifact_config_hashes
+            WHERE artifact = ?
+            """,
             [artifact_name],
         )
         rv = cur.fetchone()
@@ -405,10 +396,15 @@ class BuildState:
             # correspond to non-hidden records.
             cur.execute(
                 """
-                SELECT DISTINCT source, path, alt
-                FROM artifacts LEFT JOIN source_info USING(source)
-                WHERE artifact = ?
-                    AND is_primary_source""",
+                SELECT DISTINCT
+                    source, path, alt
+                FROM
+                    artifacts
+                LEFT JOIN
+                    source_info USING(source)
+                WHERE
+                    artifact = ? AND is_primary_source
+                """,
                 [artifact_name],
             )
             for source, path, alt in cur.fetchall():
@@ -434,11 +430,7 @@ class BuildState:
         con = self.connect_to_database()
         try:
             cur = con.cursor()
-            cur.execute(
-                """
-                select distinct artifact from artifacts order by artifact
-            """
-            )
+            cur.execute("SELECT DISTINCT artifact FROM artifacts ORDER BY artifact")
             rows = cur.fetchall()
             con.close()
             for (artifact_name,) in rows:
@@ -453,7 +445,7 @@ class BuildState:
         """Vacuums the build db."""
         con = self.connect_to_database()
         try:
-            con.execute("vacuum")
+            con.execute("VACUUM")
         finally:
             con.close()
 
@@ -832,33 +824,36 @@ class Artifact:
             cur = con.cursor()
             if not for_failure:
                 cur.execute(
-                    "delete from artifacts where artifact = ?", [self.artifact_name]
+                    "DELETE FROM artifacts WHERE artifact = ?", [self.artifact_name]
                 )
             if rows:
                 cur.executemany(
                     """
-                    insert or replace into artifacts (
+                    INSERT OR REPLACE INTO artifacts (
                         artifact, source, source_mtime, source_size,
-                        source_checksum, is_dir, is_virtual, is_primary_source)
-                    values (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+                        source_checksum, is_dir, is_virtual, is_primary_source
+                    )
+                    VALUES
+                        (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
                     rows,
                 )
 
             if self.config_hash is None:
                 cur.execute(
                     """
-                    delete from artifact_config_hashes
-                     where artifact = ?
-                """,
+                    DELETE FROM artifact_config_hashes
+                    WHERE artifact = ?
+                    """,
                     [self.artifact_name],
                 )
             else:
                 cur.execute(
                     """
-                    insert or replace into artifact_config_hashes
-                           (artifact, config_hash) values (?, ?)
-                """,
+                    INSERT OR REPLACE INTO
+                        artifact_config_hashes (artifact, config_hash)
+                    VALUES (?, ?)
+                    """,
                     [self.artifact_name, self.config_hash],
                 )
 
@@ -884,7 +879,10 @@ class Artifact:
             sources = [self.build_state.to_source_filename(x) for x in self.sources]
             cur = con.cursor()
             cur.execute(
-                f"delete from dirty_sources where source in ({_placeholders(sources)})",
+                f"""
+                DELETE FROM dirty_sources
+                WHERE source in ({_placeholders(sources)})
+                """,
                 sources,
             )
             cur.close()
@@ -908,8 +906,9 @@ class Artifact:
             cur = con.cursor()
             cur.executemany(
                 """
-                insert or replace into dirty_sources (source) values (?)
-            """,
+                INSERT OR REPLACE INTO dirty_sources (source)
+                VALUES (?)
+                """,
                 [(x,) for x in sources],
             )
             cur.close()
@@ -1138,19 +1137,20 @@ class Builder:
         )
         with con:
             cur = con.cursor()
-            cur.execute("pragma journal_mode=WAL")
-            cur.execute("pragma synchronous=NORMAL")
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA synchronous=NORMAL")
 
-            (version,) = cur.execute("pragma user_version").fetchone()
-            if version != BUILDSTATE_SCHEMA_VERSION:
+            cur.execute("PRAGMA user_version")
+            (user_version,) = cur.fetchone()
+            if user_version != BUILDSTATE_SCHEMA_VERSION:
                 # blow away existing database and recreate from scratch
-                cur.execute("select name from sqlite_master where type='table'")
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
                 table_names = [row[0] for row in cur]
                 for name in table_names:
-                    cur.execute(f'drop table "{name}"')
+                    cur.execute(f'DROP TABLE "{name}"')
 
                 create_tables(con)
-                con.execute(f"pragma user_version={BUILDSTATE_SCHEMA_VERSION:d}")
+                con.execute(f"PRAGMA user_version={BUILDSTATE_SCHEMA_VERSION:d}")
 
         return con
 
