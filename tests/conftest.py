@@ -308,3 +308,13 @@ def no_utils(monkeypatch):
         yield
     finally:
         locate_executable.cache_clear()
+
+
+def pytest_report_header(config, start_path) -> list[str]:
+    headers = []
+    with suppress(AttributeError, KeyError):
+        cls = sys.modules["lektor.markdown"].controller_class
+        headers.append(
+            f"lektor.markdown.controller_class: {cls.__module__}.{cls.__qualname__}"
+        )
+    return headers
