@@ -6,6 +6,7 @@ from typing import ClassVar
 import mistune  # type: ignore[import]
 
 from lektor.markdown.controller import MarkdownController
+from lektor.markdown.controller import MarkdownImplementation
 from lektor.markdown.controller import Meta  # FIXME: move this?
 from lektor.markdown.controller import RendererHelper
 from lektor.sourceobj import SourceObject
@@ -65,6 +66,7 @@ class MarkdownController0(MarkdownController, threading.local):
     # value in each thread.
     #
     # We need that since the mistune 0.x parser is not thread-safe.
+    implementation: ClassVar = MarkdownImplementation.MISTUNE_0
 
     def make_parser(self) -> mistune.Markdown:
         env = self.env

@@ -1,5 +1,8 @@
 import re
+import sys
 import threading
+from typing import ClassVar
+from typing import Final
 
 import pytest
 from markupsafe import Markup
@@ -11,13 +14,20 @@ from lektor.markdown import get_controller
 from lektor.markdown import make_markdown
 from lektor.markdown import Markdown
 from lektor.markdown import markdown_to_html
-from lektor.markdown import MISTUNE_VERSION
 from lektor.markdown.controller import get_renderer_context
 from lektor.markdown.controller import RendererContext
 from lektor.markdown.controller import RendererHelper
 from lektor.markdown.controller import require_ctx
 from lektor.markdown.controller import UnknownPluginError
 from lektor.pluginsystem import Plugin
+
+
+IMPL: Final = controller_class.implementation
+
+skip_unless_mistune0 = pytest.mark.skipif(IMPL != "mistune0", reason="not mistune0")
+skip_unless_mistune2 = pytest.mark.skipif(IMPL != "mistune2", reason="not mistune2")
+skip_unless_mistune = pytest.mark.skipif(IMPL == "wenmode", reason="not mistune")
+skip_unless_wenmode = pytest.mark.skipif(IMPL != "wenmode", reason="not wenmode")
 
 
 @pytest.fixture
@@ -179,17 +189,14 @@ def test_controller_cache(env):
     assert get_controller(env) is controller
 
 
-if MISTUNE_VERSION.startswith("0."):
-    plugin_url = ...
-else:
-    from mistune.plugins import plugin_url
+plugin_url = getattr(sys.modules.get("mistune.plugins"), "plugin_url", ...)
 
 
 def plugin_null(md):
     return md
 
 
-@pytest.mark.skipif(MISTUNE_VERSION.startswith("0."), reason="mistune0")
+@skip_unless_mistune2
 @pytest.mark.parametrize(
     "plugin, resolved",
     [
@@ -202,14 +209,14 @@ def test_markdown_controller_resolve_plugin(plugin, resolved, markdown_controlle
     assert markdown_controller.resolve_plugin(plugin) is resolved
 
 
-@pytest.mark.skipif(MISTUNE_VERSION.startswith("0."), reason="mistune0")
+@skip_unless_mistune2
 @pytest.mark.parametrize("plugin", ["badplugin", "unknown_module:badplugin"])
 def test_markdown_controller_resolve_plugin_unknown(plugin, markdown_controller):
     with pytest.raises(UnknownPluginError):
         markdown_controller.resolve_plugin(plugin)
 
 
-@pytest.mark.skipif(MISTUNE_VERSION.startswith("0."), reason="mistune0")
+@skip_unless_mistune2
 def test_markdown_controller_resolve_plugin_raises_typeerror(markdown_controller):
     with pytest.raises(TypeError):
         markdown_controller.resolve_plugin(None)
@@ -218,13 +225,17 @@ def test_markdown_controller_resolve_plugin_raises_typeerror(markdown_controller
 @pytest.fixture
 def improved_renderer():
     # pylint: disable=import-outside-toplevel
-    if MISTUNE_VERSION.startswith("2."):
-        from lektor.markdown.mistune2 import ImprovedRenderer
-    else:
-        from lektor.markdown.mistune0 import ImprovedRenderer
+    match IMPL:
+        case "mistune2":
+            from lektor.markdown.mistune2 import ImprovedRenderer
+        case "mistune0":
+            from lektor.markdown.mistune0 import ImprovedRenderer
+        case _:
+            return None
     return ImprovedRenderer()
 
 
+@skip_unless_mistune
 @pytest.mark.parametrize(
     "link, title, text, expected",
     [
@@ -242,13 +253,14 @@ def improved_renderer():
 )
 @pytest.mark.usefixtures("renderer_context")
 def test_ImprovedRenderer_link(link, title, text, expected, improved_renderer):
-    if MISTUNE_VERSION.startswith("2."):
+    if IMPL == "mistune2":
         result = improved_renderer.link(link, text, title)
     else:
         result = improved_renderer.link(link, title, text)
     assert re.match(expected, result)
 
 
+@skip_unless_mistune
 @pytest.mark.parametrize(
     "src, title, alt, expected",
     [
@@ -266,7 +278,7 @@ def test_ImprovedRenderer_link(link, title, text, expected, improved_renderer):
 )
 @pytest.mark.usefixtures("renderer_context")
 def test_ImprovedRenderer_image(src, title, alt, expected, improved_renderer):
-    if MISTUNE_VERSION.startswith("2."):
+    if IMPL == "mistune2":
         result = improved_renderer.image(src, alt, title)
     else:
         result = improved_renderer.image(src, title, alt)
@@ -289,6 +301,25 @@ def plugin_linkcount(md):
     md.inline.rules.insert(index, "link_count")
 
 
+try:
+    from wenmode import Wenmode
+except ImportError:
+    pass
+else:
+    import wenmode.renderers.html
+
+    class LinkCounterWenmodePlugin:
+        lektor: ClassVar = RendererHelper()
+
+        def render_link(self, *args, **kwargs) -> str:
+            multiplier = int(self.lektor.field_options.get("multiplier", 1))
+            self.lektor.meta["nlinks"] += multiplier
+            return wenmode.renderers.html.render_link(*args, **kwargs)
+
+        def setup(self, wen: Wenmode, /) -> None:
+            wen.register_renderer_handlers({"html": {"link": self.render_link}})
+
+
 class LinkCounterPlugin(Plugin):
     """A test plugin to test the renderer meta system."""
 
@@ -301,7 +332,11 @@ class LinkCounterPlugin(Plugin):
             return super().link(*args, **kwargs)
 
     def on_markdown_config(self, config, **kwargs):
-        config.renderer_mixins.append(self.RendererMixin)
+        if hasattr(config, "renderer_mixins"):
+            config.renderer_mixins.append(self.RendererMixin)
+        else:
+            # wenmode
+            config.plugins.append(LinkCounterWenmodePlugin())
 
     @staticmethod
     def on_markdown_lexer_config(config, renderer, **kwargs):
@@ -377,9 +412,9 @@ class TestMarkdown:
     def test_getitem(self, markdown):
         assert markdown["nlinks"] == 0
 
+    @skip_unless_mistune2
     @pytest.mark.parametrize("source", ["[x](/y) [link-count]"])
     @pytest.mark.usefixtures("context", "link_counter_plugin")
-    @pytest.mark.skipif(MISTUNE_VERSION.startswith("0."), reason="mistune0")
     def test_linkcount_plugin(self, markdown):
         assert markdown["nlinks"] == 1
         assert re.search(r"<code>1</code>", markdown.html)
@@ -438,7 +473,11 @@ def _normalize_html(output: str | Markup) -> str:
         # Various image alts
         ("![©](x)", r'.*<img\b[^>]* alt="©"'),
         ("![&copy;](x)", r'.*<img\b[^>]* alt="©"'),
-        ("![<br>](x)", r'.*<img\b[^>]* alt="&lt;br&gt;"'),
+        # XXX: differs between mistune and wenmode (esoteric)
+        pytest.param(
+            "![<br>](x)", r'.*<img\b[^>]* alt="&lt;br&gt;"', marks=skip_unless_mistune
+        ),
+        pytest.param("![<br>](x)", r'.*<img\b[^>]* alt=""', marks=skip_unless_wenmode),
         ("![&](x)", r'.*<img\b[^>]* alt="&amp;"'),
         ("![&amp;](x)", r'.*<img\b[^>]* alt="&amp;"'),
         # Various image titles
@@ -457,7 +496,7 @@ def _normalize_html(output: str | Markup) -> str:
         ("strikethrough: ~~stricken~~ foo", r".*<del>stricken</del> foo"),
         (
             "footnotes[^note]\n\n[^note]: comment",
-            r'(?s).*<a href="#fn-([^"]+)">.*<li id="fn-\1">',
+            r'(?s).*<a href="#(?P<fnref>[^"]{4,})"[^>]*>.*<li id="(?P=fnref)">',
         ),
         ("| Table Header |\n| -------|\n| Cell |\n", r"(?s).*<tr>"),
         ("raw URL - http://example.net/ foo", r'.*<a href="http://example\.net/"'),
@@ -488,6 +527,7 @@ def test_field_options_integration(record, field_options):
 # Tests for the bits that are provided for backward compatibility
 # with plugins written for Lektor < 3.4.
 #
+@skip_unless_mistune
 def test_deprecated_ImprovedRenderer(improved_renderer):
     with pytest.deprecated_call(
         match=r"lektor\.markdown\.ImprovedRenderer\b.* deprecated"
@@ -498,7 +538,7 @@ def test_deprecated_ImprovedRenderer(improved_renderer):
     assert isinstance(improved_renderer, ImprovedRenderer)
 
 
-@pytest.mark.skipif(not MISTUNE_VERSION.startswith("0."), reason="not mistune0")
+@skip_unless_mistune0
 @pytest.mark.usefixtures("renderer_context")
 def test_deprecated_ImprovedRenderer_record(record):
     with pytest.deprecated_call():
@@ -513,7 +553,7 @@ def test_deprecated_ImprovedRenderer_record(record):
     assert all(w.filename == __file__ for w in warnings)
 
 
-@pytest.mark.skipif(not MISTUNE_VERSION.startswith("0."), reason="not mistune0")
+@skip_unless_mistune0
 def test_deprecated_ImprovedRenderer_meta(renderer_context):
     with pytest.deprecated_call():
         # pylint: disable-next=import-outside-toplevel,no-name-in-module
@@ -533,7 +573,8 @@ def test_deprecated_MarkdownConfig(improved_renderer):
     ) as warnings:
         config = lektor.markdown.MarkdownConfig()
     assert all(w.filename == __file__ for w in warnings)
-    assert config.renderer_base is type(improved_renderer)
+    if IMPL != "wenmode":
+        assert config.renderer_base is type(improved_renderer)
 
 
 def test_deprecated_escape(improved_renderer):
@@ -578,10 +619,7 @@ def test_deprecated_markdown_to_html(record, field_options):
     assert result.html.rstrip() == "<p>goober</p>"
 
 
-@pytest.mark.skipif(
-    not MISTUNE_VERSION.startswith("0."),
-    reason="Legacy renderer mixins will only work with mistune 0.x",
-)
+@skip_unless_mistune0
 @pytest.mark.usefixtures("context")
 def test_legacy_plugin(env, record, field_options):
     # Test that Lektor<3.4 style plugin works

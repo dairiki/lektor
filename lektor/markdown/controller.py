@@ -1,3 +1,5 @@
+import enum
+import sys
 import threading
 from abc import ABC
 from abc import abstractmethod
@@ -7,6 +9,7 @@ from collections.abc import Mapping
 from collections.abc import MutableMapping
 from dataclasses import dataclass
 from typing import Any
+from typing import ClassVar
 from typing import NamedTuple
 from typing import Optional
 from typing import TYPE_CHECKING
@@ -21,6 +24,13 @@ from lektor.sourceobj import SourceObject
 
 if TYPE_CHECKING:  # pragma: no cover
     from lektor.environment import Environment
+
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+else:
+
+    class StrEnum(str, enum.Enum):
+        pass
 
 
 @dataclass
@@ -141,7 +151,15 @@ class RenderResult(NamedTuple):
     meta: Meta
 
 
+class MarkdownImplementation(StrEnum):
+    MISTUNE_0 = "mistune0"
+    MISTUNE_2 = "mistune2"
+    WENMODE = "wenmode"
+
+
 class MarkdownController(ABC):
+    implementation: ClassVar[MarkdownImplementation]
+
     def __init__(self, env: "Environment") -> None:
         self.env = env
 

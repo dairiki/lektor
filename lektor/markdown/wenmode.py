@@ -8,6 +8,7 @@ from collections.abc import Callable
 from collections.abc import Iterable
 from dataclasses import dataclass
 from dataclasses import field
+from typing import ClassVar
 from typing import Final
 from typing import TYPE_CHECKING
 
@@ -24,6 +25,7 @@ from wenmode.presets import commonmark
 from wenmode.presets import create_preset
 
 from lektor.markdown.controller import MarkdownController
+from lektor.markdown.controller import MarkdownImplementation
 from lektor.markdown.controller import RendererHelper
 
 
@@ -90,6 +92,8 @@ class MarkdownConfig:
 
 
 class MarkdownControllerWenmode(MarkdownController):
+    implementation: ClassVar = MarkdownImplementation.WENMODE
+
     def make_parser(self) -> Callable[[str | Iterable[str]], str]:
         env = self.env
         cfg = MarkdownConfig()

@@ -11,6 +11,7 @@ from typing import TypedDict
 import mistune.util
 
 from lektor.markdown.controller import MarkdownController
+from lektor.markdown.controller import MarkdownImplementation
 from lektor.markdown.controller import RendererHelper
 from lektor.markdown.controller import UnknownPluginError
 from lektor.utils import unique_everseen
@@ -73,6 +74,8 @@ class MarkdownConfig:
 
 
 class MarkdownController2(MarkdownController):
+    implementation: ClassVar = MarkdownImplementation.MISTUNE_2
+
     def make_parser(self) -> mistune.Markdown:
         env = self.env
         cfg = MarkdownConfig()
