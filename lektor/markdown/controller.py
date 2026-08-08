@@ -116,8 +116,7 @@ class RendererHelper:
         # Default is to resolve links to Lektor source objects when possible
         # This is a change from previous versions where we never resolved
         # links in Markdown.
-        record = self.record
-        if record is None:
+        if self.record is None:
             if resolve_links == "always":
                 raise RuntimeError("A source object is required to resolve URLs")
             return url
@@ -148,10 +147,15 @@ class MarkdownController(ABC):
 
     @abstractmethod
     def make_parser(self) -> Callable[[str], str]:  # () -> mistune.Mistune
-        """Construct a mistune parser"""
+        """Construct a markdown renderer.
+
+        This should be called ``make_renderer``, but has its name due to naming
+        conventions from the legacy versions of mistune which were originally used
+        for Markdown processing"""
 
     @cached_property
     def parser(self) -> Callable[[str], str]:  # () -> mistune.Mistune
+        """The markdown renderer."""
         return self.make_parser()
 
     def get_cache_key(self) -> Hashable | None:

@@ -55,6 +55,9 @@ optional-dependencies.ipython = [
     "ipython",
     "traitlets",
 ]
+optional-dependencies.wenmode = [
+    "wenmode>=0.13.3",
+]
 
 [project.scripts]
 lektor = "lektor.cli:main"
@@ -63,6 +66,8 @@ lektor = "lektor.cli:main"
 dev = [                         # generally useful during development
     {include-group = "pytest"},
     {include-group = "prek"},
+    "ruff>=0.16.2",
+    "ty>=0.0.69",
 ]
 pytest = [                 # requirements for running our pytest tests
     "pytest>=6",

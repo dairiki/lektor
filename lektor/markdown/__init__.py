@@ -3,6 +3,7 @@ import warnings
 from collections.abc import Hashable
 from importlib import metadata
 from typing import Any
+from typing import Final
 from typing import TYPE_CHECKING
 from weakref import ref as weakref
 
@@ -24,8 +25,19 @@ if TYPE_CHECKING:  # pragma: no cover
 controller_class: type[MarkdownController]
 
 
-MISTUNE_VERSION = metadata.version("mistune")
-if MISTUNE_VERSION.startswith("0."):
+def _get_version(package: str) -> str | None:
+    try:
+        return metadata.version(package)
+    except metadata.PackageNotFoundError:
+        return None
+
+
+WENMODE_VERSION: Final = _get_version("wenmode")
+MISTUNE_VERSION: Final = metadata.version("mistune")
+
+if WENMODE_VERSION is not None:
+    from lektor.markdown.wenmode import MarkdownControllerWenmode as controller_class
+elif MISTUNE_VERSION.startswith("0."):
     from lektor.markdown.mistune0 import MarkdownController0 as controller_class
 elif MISTUNE_VERSION.startswith("2."):
     from lektor.markdown.mistune2 import MarkdownController2 as controller_class
@@ -51,7 +63,7 @@ class Markdown:
     __nonzero__ = __bool__
 
     @property
-    def record(self) -> SourceObject:
+    def record(self) -> SourceObject | None:
         ref = self.__record
         if ref is None:
             return None
