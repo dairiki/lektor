@@ -25,17 +25,9 @@ if TYPE_CHECKING:  # pragma: no cover
 controller_class: type[MarkdownController]
 
 
-def _get_version(package: str) -> str | None:
-    try:
-        return metadata.version(package)
-    except metadata.PackageNotFoundError:
-        return None
-
-
-WENMODE_VERSION: Final = _get_version("wenmode")
 MISTUNE_VERSION: Final = metadata.version("mistune")
 
-if WENMODE_VERSION is not None:
+if "wenmode" in metadata.packages_distributions():
     from lektor.markdown.wenmode import MarkdownControllerWenmode as controller_class
 elif MISTUNE_VERSION.startswith("0."):
     from lektor.markdown.mistune0 import MarkdownController0 as controller_class

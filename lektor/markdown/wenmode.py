@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import html
 from collections.abc import Callable
 from collections.abc import Iterable
@@ -10,28 +11,29 @@ from dataclasses import field
 from typing import Final
 from typing import TYPE_CHECKING
 
+import wenmode
 import wenmode.ast
 import wenmode.nodes
+import wenmode.renderers.html
 import wenmode.rules
 from wenmode import HTMLRenderer
 from wenmode import Wenmode
+from wenmode.nodes import Image
+from wenmode.nodes import Link
 from wenmode.presets import commonmark
 from wenmode.presets import create_preset
-from wenmode.rules import Rule
-from wenmode.rules.transforms import RootTransform
 
 from lektor.markdown.controller import MarkdownController
 from lektor.markdown.controller import RendererHelper
 
 
 if TYPE_CHECKING:
-    from _typeshed import Incomplete
     from types import ModuleType
 
-    from wenmode.nodes import Root
-    from wenmode.parser import Parser
     from wenmode.plugins.types import PluginModule
     from wenmode.renderers import DirectiveHtmlRenderer
+    from wenmode.renderers.html import HTMLRenderContext
+    from wenmode.rules import Rule
 
 
 def escape(text: str) -> str:
@@ -43,23 +45,8 @@ def escape(text: str) -> str:
     return html.escape(text, quote=True)
 
 
-class TransformLektorURLs(RootTransform):
-    name = "transform-lektor-urls"
-
-    __helper: Final = RendererHelper()
-
-    def transform(self, parser: Parser, root: Root, state: Incomplete) -> None:
-        for node in wenmode.ast.walk(root):
-            if isinstance(node, (wenmode.nodes.Link, wenmode.nodes.Image)):
-                node.url = self.__helper.resolve_url(node.url)
-
-
-class ResolveLektorURLs(Rule):
-    name = "resolve-lektor-urls"
-    root_transforms = [TransformLektorURLs()]
-
-
 DEFAULT_RULES: Final = tuple(
+    # Here, for b/c we attempt to duplicate the behavior of mistune 0.*
     create_preset(
         commonmark,
         prepend=[
@@ -69,10 +56,30 @@ DEFAULT_RULES: Final = tuple(
             wenmode.rules.Footnote,
             wenmode.rules.Strikethrough,
             wenmode.rules.ExtendedAutolink,
-            ResolveLektorURLs,
         ],
     )
 )
+
+
+_RENDERER_HELPER: Final = RendererHelper()
+
+
+def lektor_render_link(
+    renderer: HTMLRenderer, node: Link, context: HTMLRenderContext
+) -> str:
+    resolved_url = _RENDERER_HELPER.resolve_url(node.url)
+    return wenmode.renderers.html.render_link(
+        renderer, dataclasses.replace(node, url=resolved_url), context
+    )
+
+
+def lektor_render_image(
+    renderer: HTMLRenderer, node: Image, context: HTMLRenderContext
+) -> str:
+    resolved_url = _RENDERER_HELPER.resolve_url(node.url)
+    return wenmode.renderers.html.render_image(
+        renderer, dataclasses.replace(node, url=resolved_url), context
+    )
 
 
 @dataclass
@@ -89,6 +96,9 @@ class MarkdownControllerWenmode(MarkdownController):
         # FIXME: call different hooks here for wenmode?
         env.plugin_controller.emit("markdown-config", config=cfg)
         renderer = HTMLRenderer(escape=False, sanitize_urls=False, sanitize_attrs=False)
+        renderer.register_handler(Link.type, lektor_render_link)
+        renderer.register_handler(Image.type, lektor_render_image)
+
         env.plugin_controller.emit(
             "markdown-lexer-config", config=cfg, renderer=renderer
         )

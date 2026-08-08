@@ -155,12 +155,13 @@ def test_markdown_controller_parser_caching(markdown_controller):
     assert len(parsers) == 1
 
     _run_in_thread(get_parser)
-    if MISTUNE_VERSION.startswith("2."):
-        # mistune 2.x's parser is thread-safe. It need not be thread-local.
-        assert len(parsers) == 1
-    else:
-        # mistune 0.x's parser is not thread-safe. We need one for each thread.
-        assert len(parsers) == 2
+    match controller_class.__module__:
+        case "lektor.markdown.mistune2" | "lektor.markdown.wenmode":
+            # mistune 2.x's parser is thread-safe. It need not be thread-local.
+            assert len(parsers) == 1
+        case _:
+            # mistune 0.x's parser is not thread-safe. We need one for each thread.
+            assert len(parsers) == 2
 
 
 @pytest.mark.parametrize("base_url", ["/BASE/"])
@@ -390,6 +391,19 @@ class TestMarkdown:
     @pytest.mark.usefixtures("context")
     def test_markup(self, markdown):
         assert markdown.__html__().rstrip() == "<p>text</p>"
+
+    @pytest.mark.parametrize(
+        "source, expected",
+        [
+            ("[link](y)", '<p><a href="../extra/y">link</a></p>'),
+            ("![a](x.png)", '<p><img src="../extra/x.png" alt="a"></p>'),
+        ],
+    )
+    @pytest.mark.parametrize("record_path", ["/extra"])
+    @pytest.mark.parametrize("base_url", ["/projects/"])
+    @pytest.mark.usefixtures("context")
+    def test_resolves_urls(self, markdown, expected):
+        assert _normalize_html(markdown.__html__()) == expected
 
 
 def _normalize_html(output: str | Markup) -> str:
